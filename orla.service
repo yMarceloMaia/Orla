@@ -1,0 +1,11 @@
+[Unit]
+Description=Orla — dock por workspace
+PartOf=graphical-session.target
+After=graphical-session-pre.target
+[Service]
+ExecStartPre=%h/.local/bin/orla native-off
+ExecStart=%h/.local/bin/orla run-shell
+ExecStopPost=-%h/.local/bin/orla recover
+ExecStopPost=%h/.local/bin/orla native-back
+[Install]
+WantedBy=graphical-session.target

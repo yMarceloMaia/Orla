@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Orla — Ativar ou desativar dock
+Icon=preferences-desktop
+Exec=orla toggle
+Categories=Settings;

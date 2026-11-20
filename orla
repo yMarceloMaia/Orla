@@ -1,0 +1,306 @@
+#!/usr/bin/env python3
+import json
+import os
+import re
+import select
+import signal
+import socket
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+CONFIG = Path.home() / ".config/orla/settings.json"
+PARK = "special:marcelomaia-dock-minimized"
+PREFIX = "orla-from-"
+UNIT = "orla.service"
+MARK = CONFIG.parent / "restore-native"
+
+
+def run(*args):
+    return subprocess.check_output(args, text=True).strip()
+
+
+def query(key):
+    return json.loads(run("hyprctl", "-j", key))
+
+
+def dispatch(expr):
+    if run("hyprctl", "dispatch", expr) != "ok":
+        raise RuntimeError("Hyprland recusou a operação")
+
+
+def settings():
+    if CONFIG.exists():
+        return json.loads(CONFIG.read_text())
+    native = Path.home() / ".config/omarchy/shell.json"
+    pins = json.loads(native.read_text()).get("dock", {}).get("pinned", []) if native.exists() else []
+    return dict(pins=pins, size=46, position="bottom", auto=True, zoom=True, folders=[str(Path.home())])
+
+
+def save(cfg):
+    CONFIG.parent.mkdir(parents=True, exist_ok=True)
+    tmp = CONFIG.with_suffix(".tmp")
+    tmp.write_text(json.dumps(cfg, ensure_ascii=False))
+    tmp.replace(CONFIG)
+
+
+def origin(w):
+    prefix = "omarchy-minimized-from-" if w["workspace"]["name"] == "special:minimized" else PREFIX
+    for tag in w.get("tags", []):
+        if re.fullmatch(prefix + r"[1-9]\d*", tag):
+            return int(tag[len(prefix):])
+    return 0
+
+
+def parked(w):
+    return w["workspace"]["name"] == PARK
+
+
+def native_parked(w):
+    return w["workspace"]["name"] == "special:minimized" and origin(w) > 0
+
+
+def target(w):
+    address = w["address"]
+    if not re.fullmatch(r"0x[0-9a-fA-F]+", address):
+        raise ValueError("Endereço inválido")
+    return 'window = "address:' + address + '"'
+
+
+def move(w, workspace):
+    dispatch(f'hl.dsp.window.move({{workspace="{workspace}", follow=false, {target(w)}}})')
+
+
+def tag(w, value):
+    dispatch(f'hl.dsp.window.tag({{tag="{value}", {target(w)}}})')
+
+
+TILE = "orla-tile-"
+
+
+def tile_rect(w):
+    for value in w.get("tags", []):
+        match = re.fullmatch(TILE + r"(-?\d+)_(-?\d+)_(\d+)_(\d+)", value)
+        if match:
+            return tuple(map(int, match.groups()))
+
+
+def tiled_neighbors(ws):
+    if not any(item["id"] == ws and item.get("tiledLayout") == "dwindle"
+               for item in query("workspaces")):
+        return []
+    return [c for c in query("clients") if c["workspace"]["id"] == ws
+            and c.get("mapped") and not c["floating"] and not c.get("fullscreen")]
+
+
+def restore_split(w, dest):
+    rect = tile_rect(w)
+    if not rect or w["floating"] or query("activeworkspace")["id"] != dest:
+        return False
+    x, y, width, height = rect
+    for neighbor in tiled_neighbors(dest):
+        nx, ny = neighbor["at"]
+        nw, nh = neighbor["size"]
+        # The former sibling expanded into the empty tile. Match both its
+        # unchanged edges before splitting it, rather than moving other tiles.
+        if abs(ny-y) <= 2 and abs(nh-height) <= 2 and nw > width:
+            if abs(nx-x) <= 2:
+                direction = "l"
+            elif abs(nx+nw-x-width) <= 2:
+                direction = "r"
+            else:
+                continue
+        elif abs(nx-x) <= 2 and abs(nw-width) <= 2 and nh > height:
+            if abs(ny-y) <= 2:
+                direction = "u"
+            elif abs(ny+nh-y-height) <= 2:
+                direction = "d"
+            else:
+                continue
+        else:
+            continue
+        expr = f"""local old = hl.get_config("cursor.no_warps")
+        local active = hl.get_config("dwindle.use_active_for_splits")
+        hl.config({{cursor={{no_warps=true}}, dwindle={{use_active_for_splits=true}}}})
+        local ok, err = pcall(function()
+            hl.dispatch(hl.dsp.focus({{{target(neighbor)}}}))
+            hl.dispatch(hl.dsp.layout("preselect {direction}"))
+            hl.dispatch(hl.dsp.window.move({{workspace="{int(dest)}", follow=false, {target(w)}}}))
+        end)
+        hl.dispatch(hl.dsp.layout("preselect none"))
+        hl.config({{cursor={{no_warps=old}}, dwindle={{use_active_for_splits=active}}}})
+        if not ok then error(err) end"""
+        run("hyprctl", "eval", expr)
+        return any(c["address"] == w["address"] and c["workspace"]["id"] == dest for c in query("clients"))
+    return False
+
+
+def restore(w, place=False):
+    dest = origin(w)
+    if dest not in {s["id"] for s in query("workspaces")}:
+        dest = query("activeworkspace")["id"]
+    if dest < 1:
+        raise RuntimeError("Selecione um workspace normal para recuperar")
+    if not (place and restore_split(w, dest)):
+        move(w, int(dest))
+    for value in w.get("tags", []):
+        if value.startswith(TILE) and re.fullmatch(r"orla-tile-[-0-9_]+", value):
+            tag(w, "-" + value)
+    if origin(w):
+        prefix = "omarchy-minimized-from-" if native_parked(w) else PREFIX
+        tag(w, "-" + prefix + str(origin(w)))
+
+
+def window_action(action, address):
+    w = next(w for w in query("clients") if w["address"] == address)
+    if action == "minimize" and w["workspace"]["id"] > 0:
+        ws = w["workspace"]["id"]
+        if origin(w):
+            tag(w, "-" + PREFIX + str(origin(w)))
+        if not w["floating"] and not w.get("fullscreen") and len(tiled_neighbors(ws)) > 1:
+            for value in w.get("tags", []):
+                if re.fullmatch(r"orla-tile-[-0-9_]+", value):
+                    tag(w, "-" + value)
+            tag(w, "+" + TILE + "_".join(map(str, [*w["at"], *w["size"]])))
+        tag(w, "+" + PREFIX + str(ws))
+        move(w, PARK)
+        dispatch(f'hl.dsp.focus({{workspace="{ws}"}})')
+    elif action == "focus":
+        if parked(w) or native_parked(w):
+            restore(w, place=True)
+        if w["floating"]:
+            dispatch(f'hl.dsp.window.alter_zorder({{ mode="top", {target(w)} }})')
+        expr = f"""local old = hl.get_config("cursor.no_warps")
+        hl.config({{cursor={{no_warps=true}}}})
+        local ok, err = pcall(function() hl.dispatch(hl.dsp.focus({{{target(w)}}})) end)
+        hl.config({{cursor={{no_warps=old}}}})
+        if not ok then error(err) end"""
+        result = run("hyprctl", "eval", expr)
+        if "error" in result.lower():
+            raise RuntimeError(result)
+    elif action == "force":
+        pid = w["pid"]
+        if pid > 1 and confirm("Forçar encerramento do aplicativo? Alterações não salvas serão perdidas."):
+            if any(c["address"] == address and c["pid"] == pid for c in query("clients")):
+                os.kill(pid, signal.SIGKILL)
+
+
+def confirm(message):
+    return subprocess.call(["zenity", "--question", "--default-cancel", "--text", message]) == 0
+
+
+def snapshot():
+    clients = query("clients")
+    for w in clients:
+        w["origin"] = origin(w) if parked(w) or native_parked(w) else w["workspace"]["id"]
+        w["parked"] = parked(w) or native_parked(w)
+    return dict(clients=clients, monitors=query("monitors"), active=query("activewindow").get("address"), cfg=settings())
+
+
+def watch():
+    path = Path(os.environ["XDG_RUNTIME_DIR"]) / "hypr" / os.environ["HYPRLAND_INSTANCE_SIGNATURE"] / ".socket2.sock"
+    with socket.socket(socket.AF_UNIX) as sock:
+        sock.connect(str(path))
+        last = None
+        while True:
+            data = json.dumps(snapshot())
+            if data != last:
+                print(data, flush=True)
+                last = data
+            if select.select([sock], [], [], 2)[0] and not sock.recv(65536):
+                return
+
+
+def show_settings():
+    import fcntl
+    import time
+    with (Path(os.environ["XDG_RUNTIME_DIR"]) / "orla-settings.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        pid = int(run("systemctl", "--user", "show", UNIT, "-p", "MainPID", "--value"))
+        def find():
+            return next((w for w in query("clients") if w["pid"] == pid
+                         and w["title"] == "Orla · Configurações" and w["mapped"]), None)
+        dest = query("activeworkspace")["id"]
+        window = find()
+        if not window:
+            run("qs", "ipc", "-p", str(ROOT / "shell.qml"), "call", "settings", "createWindow")
+            for _ in range(35):
+                window = find()
+                if window:
+                    break
+                time.sleep(.05)
+        if not window:
+            raise RuntimeError("A janela de configurações não abriu")
+        if parked(window) or native_parked(window):
+            restore(window)
+        current = find()
+        if current and dest > 0 and current["workspace"]["id"] != dest:
+            move(current, dest)
+        window_action("focus", window["address"])
+
+
+def main(action, *args):
+    if action == "run-shell":
+        os.execlp("quickshell", "quickshell", "-n", "-p", str(ROOT / "shell.qml"))
+    if action == "settings":
+        return show_settings()
+    if action == "watch":
+        watch()
+    elif action == "cycle":
+        import fcntl
+        with (Path(os.environ["XDG_RUNTIME_DIR"]) / "orla-cycle.lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            live = {w["address"]: w for w in query("clients")}
+            addresses = [a for a in args if a in live]
+            minimized = [a for a in addresses if parked(live[a]) or native_parked(live[a])]
+            if minimized:
+                window_action("focus", minimized[0])
+            elif addresses:
+                active = query("activewindow").get("address")
+                index = addresses.index(active) if active in addresses else -1
+                action = "minimize" if len(addresses) == 1 and index == 0 else "focus"
+                window_action(action, addresses[(index + 1) % len(addresses)])
+    elif action in ("focus", "minimize", "force"):
+        window_action(action, args[0])
+    elif action == "recover":
+        for w in query("clients"):
+            if parked(w):
+                restore(w)
+    elif action == "rescue":
+        dispatch('hl.dsp.workspace.toggle_special("marcelomaia-dock-minimized")')
+    elif action == "empty":
+        if confirm("Esvaziar a lixeira permanentemente?"):
+            run("gio", "trash", "--empty")
+    elif action == "folder":
+        choice = subprocess.run(["zenity", "--file-selection", "--directory", "--title=Adicionar pasta à dock"], capture_output=True, text=True)
+        if choice.returncode == 0:
+            cfg = settings()
+            cfg["folders"] = list(dict.fromkeys([*cfg["folders"], choice.stdout.rstrip("\n")]))
+            save(cfg)
+    elif action == "toggle":
+        active = subprocess.call(["systemctl", "--user", "is-active", "--quiet", UNIT]) == 0
+        main("disable" if active else "enable")
+    elif action == "set":
+        cfg = settings()
+        key, value = args
+        if key in cfg or key == "order":
+            cfg[key] = json.loads(value)
+            save(cfg)
+    elif action == "native-off":
+        if any(p["id"] == "omarchy.dock" and p["enabled"] for p in json.loads(run("omarchy","plugin","list","--json"))):
+            MARK.parent.mkdir(parents=True, exist_ok=True)
+            MARK.touch()
+            run("omarchy","plugin","disable","omarchy.dock")
+    elif action == "native-back":
+        if MARK.exists():
+            run("omarchy","plugin","enable","omarchy.dock")
+            MARK.unlink()
+    elif action in ("enable","disable"):
+        run("systemctl","--user",action,"--now",UNIT)
+    else:
+        raise SystemExit("orla enable | disable | recover | rescue")
+
+
+if __name__ == "__main__":
+    main(*sys.argv[1:])
