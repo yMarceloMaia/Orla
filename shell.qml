@@ -22,6 +22,14 @@ ShellRoot {
             monitors: []
         })
     property var cfg: state.cfg
+    readonly property bool light: cfg.appearance === "light" || (cfg.appearance !== "dark" && (state.visuals?.mode ? state.visuals.mode === "light" : Qt.styleHints.colorScheme === Qt.Light))
+    readonly property bool motion: !cfg.reduceMotion && state.visuals?.animations !== false
+    readonly property bool useThemePalette: cfg.appearance === "system" || cfg.appearance === state.visuals?.mode
+    readonly property color background: (useThemePalette && state.visuals?.background) || (light ? "#fafafe" : "#262830")
+    readonly property color ink: (useThemePalette && state.visuals?.foreground) || (light ? "#24252d" : "#f3f3f8")
+    readonly property color surface: Qt.alpha(background, cfg.glass ? 0.96 : 1)
+    readonly property color focusAccent: root.state.visuals?.accent || (light ? "#35589d" : "#96baff")
+    readonly property color outline: light ? "#809598a3" : "#70778090"
     function cmd(...args) {
         Quickshell.execDetached([helper, ...args]);
     }
@@ -73,15 +81,33 @@ ShellRoot {
             property var wins: root.state.clients.filter(c => monitor && c.origin === monitor.activeWorkspace.id).sort((a, b) => a.address.localeCompare(b.address))
             property bool vertical: root.cfg.position !== "bottom"
             readonly property int displayedWorkspace: monitor?.specialWorkspace?.id || monitor?.activeWorkspace?.id || 0
-            readonly property bool fullscreen: !!monitor && root.state.clients.some(c =>
-                c.mapped && !c.hidden && c.workspace.id === displayedWorkspace && (c.fullscreen & 2) !== 0)
+            readonly property bool fullscreen: !!monitor && root.state.clients.some(c => c.mapped && !c.hidden && c.workspace.id === displayedWorkspace && (c.fullscreen & 2) !== 0)
             visible: !fullscreen
             onFullscreenChanged: if (fullscreen) {
                 tipTarget = null;
                 endDrag();
                 menu.close();
             }
-            property bool shown: !fullscreen && (dragging !== "" || !root.cfg.auto || hover.hovered || (tipTarget?.windows?.length > 1 && !tipDelay.running) || menu.opened || linger.running)
+            property bool shown: !fullscreen && (dragging !== "" || !root.cfg.auto || hover.hovered || (tipTarget?.windows?.length > 1 && !tipDelay.running) || fileDragGrace.running || fileHoverCount > 0 || menu.opened || stack.opened || resizeSize > 0 || linger.running)
+            property int fileHoverCount: 0
+            property int resizeSize: 0
+            readonly property int iconSize: resizeSize || root.cfg.size
+            property var documents: []
+            Process {
+                id: docReader
+                stdout: StdioCollector {
+                    onStreamFinished: {
+                        if (menu.visible && docReader.command[2] === panel.selected)
+                            panel.documents = text.trim() ? JSON.parse(text) : [];
+                    }
+                }
+            }
+            property string stackPath: ""
+            readonly property var recentEntries: {
+                const running = root.state.clients.map(c => root.key(c));
+                const entries = (root.state.recent || []).map(k => root.appFor(k)).filter(Boolean);
+                return root.cfg.recentApps ? entries.filter((e, i) => !running.includes(e.id) && !root.cfg.pins.includes(e.id) && entries.findIndex(o => o.id === e.id) === i).slice(0, 3) : [];
+            }
             property string dragging: ""
             property int dropIndex: -1
             property real dragOffset: 0
@@ -109,7 +135,16 @@ ShellRoot {
             }
             property string selected: ""
             readonly property bool windowMenuVisible: menu.visible
-            property var selectedWins: wins.filter(c => root.key(c) === selected)
+            property var selectedWins: []
+            function openMenu(key) {
+                selected = key;
+                selectedWins = key ? wins.filter(c => root.key(c) === key) : [];
+                menu.popup();
+            }
+            function toggleMenuWindow(window) {
+                root.cmd(window.parked ? "focus" : "minimize", window.address);
+                menu.close();
+            }
             property Item tipTarget: null
             function tip(item, show) {
                 if (show) {
@@ -170,8 +205,8 @@ ShellRoot {
                     }
                     anchors.fill: parent
                     radius: 9
-                    color: "#f02c2e35"
-                    border.color: "#70727c"
+                    color: root.surface
+                    border.color: root.outline
                     Text {
                         id: label
                         visible: !hint.previews.length
@@ -181,7 +216,7 @@ ShellRoot {
                         verticalAlignment: Text.AlignVCenter
                         textFormat: Text.PlainText
                         elide: Text.ElideRight
-                        color: "white"
+                        color: root.ink
                         text: panel.tipTarget?.Accessible.name || ""
                     }
                     Row {
@@ -207,7 +242,7 @@ ShellRoot {
                                 }
                                 Text {
                                     width: parent.width
-                                    color: "white"
+                                    color: root.ink
                                     textFormat: Text.PlainText
                                     elide: Text.ElideRight
                                     horizontalAlignment: Text.AlignHCenter
@@ -221,7 +256,7 @@ ShellRoot {
             anchors.bottom: !vertical
             anchors.left: root.cfg.position === "left"
             anchors.right: root.cfg.position === "right"
-            property int extent: root.cfg.size + 22
+            property int extent: panel.iconSize + 22
             implicitWidth: vertical ? (shown ? extent : 3) : Math.min(screen.width, tiles.implicitWidth + 28)
             implicitHeight: vertical ? Math.min(screen.height, tiles.implicitHeight + 28) : (shown ? extent : 3)
             exclusiveZone: root.cfg.auto ? 0 : extent
@@ -229,6 +264,12 @@ ShellRoot {
             WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
             color: "transparent"
             WlrLayershell.namespace: "orla-dock"
+            BackgroundEffect.blurRegion: panel.shown && root.cfg.glass && root.state.visuals?.blur ? shelfRegion : null
+            Region {
+                id: shelfRegion
+                item: shelf
+                radius: shelf.radius
+            }
             HoverHandler {
                 id: hover
                 onHoveredChanged: if (!hovered) {
@@ -236,11 +277,20 @@ ShellRoot {
                     tipExit.restart();
                 }
             }
+            Timer { id: fileDragGrace; interval: 800 }
+            DropArea {
+                anchors.fill: parent
+                keys: ["text/uri-list"]
+                onEntered: event => { fileDragGrace.restart(); event.accept(Qt.CopyAction) }
+                onPositionChanged: fileDragGrace.restart()
+                onDropped: event => { event.accepted = false }
+            }
             Timer {
                 id: linger
                 interval: 450
             }
             Rectangle {
+                id: shelf
                 anchors.fill: parent
                 visible: panel.shown
                 anchors.margins: 3
@@ -248,14 +298,14 @@ ShellRoot {
                 gradient: Gradient {
                     GradientStop {
                         position: 0
-                        color: "#e04a4c55"
+                        color: Qt.alpha(Qt.tint(root.background, Qt.alpha(root.ink, 0.09)), root.cfg.glass ? 0.84 : 1)
                     }
                     GradientStop {
                         position: 1
-                        color: "#e326272d"
+                        color: Qt.alpha(root.background, root.cfg.glass ? 0.78 : 1)
                     }
                 }
-                border.color: "#709c9da5"
+                border.color: root.outline
                 Rectangle {
                     anchors.fill: parent
                     anchors.margins: 1
@@ -279,9 +329,24 @@ ShellRoot {
                             readonly property real shift: !panel.dragging ? 0 : panel.dragging === modelData ? panel.dragOffset : index > sourceIndex && index <= panel.dropIndex ? -(width + tiles.spacing) : index < sourceIndex && index >= panel.dropIndex ? width + tiles.spacing : 0
                             property var app: root.appFor(tile.modelData)
                             property var windows: panel.wins.filter(c => root.key(c) === modelData)
-                            width: root.cfg.size
+                            width: panel.iconSize
                             height: width
-                            background: Item {}
+                            readonly property bool hasFocusedWindow: windows.some(w => !w.parked && w.address === root.state.active)
+                            background: Rectangle {
+                                radius: Math.round(tile.width * 0.25)
+                                color: Qt.alpha(root.focusAccent, root.light ? 0.20 : 0.32)
+                                border.color: Qt.alpha(root.light ? Qt.darker(root.focusAccent, 1.25) : Qt.lighter(root.focusAccent, 1.4), 0.9)
+                                border.width: 1
+                                opacity: tile.hasFocusedWindow ? 1 : 0
+                                Behavior on opacity {
+                                    enabled: root.motion
+                                    NumberAnimation { duration: 110 }
+                                }
+                                transform: Translate {
+                                    x: panel.vertical ? 0 : tile.shift
+                                    y: panel.vertical ? tile.shift : 0
+                                }
+                            }
                             hoverEnabled: true
                             z: panel.dragging === modelData ? 2 : hovered ? 1 : 0
                             padding: 0
@@ -292,7 +357,9 @@ ShellRoot {
                                 }
                                 button: tile
                                 source: Quickshell.iconPath(tile.app?.icon || tile.modelData, true)
+                                edge: root.cfg.position
                                 zoomEnabled: root.cfg.zoom
+                                motion: root.motion
                             }
                             Rectangle {
                                 visible: tile.windows.length > 1
@@ -319,6 +386,13 @@ ShellRoot {
                                     text: tile.windows.length
                                 }
                             }
+                            FileDrop {
+                                anchors.fill: parent; z: 4
+                                helper: root.helper; light: root.light; appId: tile.app?.id || ""
+                                onContainsDragChanged: { panel.fileHoverCount += containsDrag ? 1 : -1; fileDragGrace.restart() }
+                                onLaunchRequested: if (root.cfg.launchAnimation) tile.contentItem.bounce()
+                                onCompatibleChanged: if (compatible) panel.tipTarget = null
+                            }
                             property var preview: hovered && windows.length === 1 && windows[0].parked ? Hyprland.toplevels.values.find(t => String(t.address).replace(/^0x/, "") === windows[0].address.slice(2))?.wayland : null
                             ScreencopyView {
                                 anchors.fill: parent
@@ -332,10 +406,12 @@ ShellRoot {
                             onHoveredChanged: panel.tip(tile, hovered)
                             TapHandler {
                                 acceptedButtons: Qt.MiddleButton
-                                onTapped: root.newWindow(tile.app)
+                                onTapped: { if (root.cfg.launchAnimation && tile.app) tile.contentItem.bounce(); root.newWindow(tile.app) }
                             }
                             function activateApp() {
                                 if (!windows.length) {
+                                    if (app && root.cfg.launchAnimation)
+                                        contentItem.bounce();
                                     app?.execute();
                                     return;
                                 }
@@ -386,8 +462,7 @@ ShellRoot {
                             TapHandler {
                                 acceptedButtons: Qt.RightButton
                                 onTapped: {
-                                    panel.selected = tile.modelData;
-                                    menu.popup();
+                                    panel.openMenu(tile.modelData);
                                 }
                             }
                             Rectangle {
@@ -396,9 +471,116 @@ ShellRoot {
                                 width: 4
                                 height: 4
                                 radius: 2
-                                visible: tile.windows.length > 0
-                                color: tile.windows.every(w => w.parked) ? "#f9bd68" : "#f5f4fa"
+                                visible: root.cfg.indicators !== false && tile.windows.length > 0
+                                color: tile.windows.every(w => w.parked) ? (root.light ? "#955300" : "#f9bd68") : root.ink
                             }
+                        }
+                    }
+                    Item {
+                        width: panel.vertical ? panel.iconSize : 12
+                        height: panel.vertical ? 12 : panel.iconSize
+                        Rectangle {
+                            anchors.centerIn: parent
+                            width: panel.vertical ? parent.width * 0.66 : 2
+                            height: panel.vertical ? 2 : parent.height * 0.66
+                            radius: 1
+                            color: grip.containsMouse ? "#e1e3ef" : "#80838f"
+                        }
+                        MouseArea {
+                            id: grip
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            preventStealing: true
+                            cursorShape: panel.vertical ? Qt.SizeHorCursor : Qt.SizeVerCursor
+                            property real start: 0
+                            property int initial: 0
+                            function coordinate(m) {
+                                const pt = mapToGlobal(m.x, m.y);
+                                return panel.vertical ? (root.cfg.position === "left" ? pt.x : -pt.x) : -pt.y;
+                            }
+                            onPressed: m => {
+                                start = coordinate(m);
+                                initial = root.cfg.size;
+                                panel.resizeSize = initial;
+                            }
+                            onPositionChanged: m => {
+                                if (pressed)
+                                    panel.resizeSize = Math.max(30, Math.min(68, initial + Math.round(coordinate(m) - start)));
+                            }
+                            onReleased: {
+                                const value = panel.resizeSize;
+                                panel.resizeSize = 0;
+                                if (value !== initial)
+                                    root.set("size", value);
+                            }
+                            onCanceled: panel.resizeSize = 0
+                        }
+                    }
+                    Repeater {
+                        model: panel.recentEntries
+                        ToolButton {
+                            required property var modelData
+                            width: panel.iconSize
+                            height: width
+                            background: Item {}
+                            Accessible.name: modelData.name + " · recente"
+                            contentItem: DockGlyph {
+                                button: parent
+                                source: Quickshell.iconPath(parent.modelData.icon, true)
+                                edge: root.cfg.position
+                                zoomEnabled: root.cfg.zoom
+                                motion: root.motion
+                            }
+                            onHoveredChanged: panel.tip(this, hovered)
+                            FileDrop {
+                                anchors.fill: parent
+                                helper: root.helper; light: root.light; appId: parent.modelData.id
+                                onContainsDragChanged: { panel.fileHoverCount += containsDrag ? 1 : -1; fileDragGrace.restart() }
+                                onLaunchRequested: if (root.cfg.launchAnimation) parent.contentItem.bounce()
+                            }
+                            onClicked: {
+                                if (root.cfg.launchAnimation)
+                                    contentItem.bounce();
+                                modelData.execute();
+                            }
+                        }
+                    }
+                    Repeater {
+                        model: root.cfg.stacks ? root.cfg.folders : []
+                        ToolButton {
+                            required property string modelData
+                            width: panel.iconSize
+                            height: width
+                            background: Item {}
+                            Accessible.name: modelData
+                            contentItem: DockGlyph {
+                                button: parent
+                                source: Quickshell.iconPath("folder", true)
+                                edge: root.cfg.position
+                                zoomEnabled: root.cfg.zoom
+                                motion: root.motion
+                            }
+                            onHoveredChanged: panel.tip(this, hovered)
+                            onClicked: {
+                                panel.stackPath = modelData;
+                                stack.parent = this;
+                                stack.open();
+                            }
+                        }
+                    }
+                    Repeater {
+                        model: root.cfg.separateMinimized ? panel.wins.filter(w => w.parked) : []
+                        ToolButton {
+                            required property var modelData
+                            width: panel.iconSize
+                            height: width
+                            Accessible.name: modelData.title + " · minimizada"
+                            contentItem: WindowThumb {
+                                client: parent.modelData
+                                capturing: panel.shown
+                            }
+                            onHoveredChanged: panel.tip(this, hovered)
+                            onClicked: root.cmd("focus", modelData.address)
                         }
                     }
                     ToolButton {
@@ -410,33 +592,71 @@ ShellRoot {
                         contentItem: DockGlyph {
                             button: optionsButton
                             source: Quickshell.iconPath("preferences-system", true)
-                            zoomEnabled: root.cfg.zoom
+                            edge: root.cfg.position
+                                zoomEnabled: root.cfg.zoom
+                            motion: root.motion
                         }
                         onHoveredChanged: panel.tip(optionsButton, hovered)
-                        width: root.cfg.size
+                        width: panel.iconSize
                         height: width
                         Accessible.name: "Opções da dock"
                         onClicked: {
-                            panel.selected = "";
-                            menu.popup();
+                            panel.openMenu("");
                         }
                     }
                 }
             }
+            FolderStack {
+                id: stack
+                lightMode: root.light
+                parent: panel.contentItem
+                path: panel.stackPath
+                x: panel.vertical ? (root.cfg.position === "left" ? parent.width : -width) : (parent.width - width) / 2
+                y: panel.vertical ? (parent.height - height) / 2 : -height
+            }
             Menu {
                 id: menu
+                onAboutToShow: {
+                    panel.documents = [];
+                    if (panel.selected) {
+                        docReader.running = false;
+                        docReader.command = [root.helper, "documents", panel.selected];
+                        docReader.running = true;
+                    }
+                }
                 width: panel.selectedWins.length ? Math.min(panel.screen.width - 12, 388) : 248
                 padding: 6
                 background: Rectangle {
                     radius: 12
-                    color: "#fa30323a"
-                    border.color: "#696c78"
+                    color: root.surface
+                    border.color: root.outline
                 }
                 popupType: Popup.Window
                 DockOption {
+                    lightMode: root.light
                     visible: panel.selected.length > 0 && !!root.appFor(panel.selected)
                     text: "Nova janela"
-                    onTriggered: root.newWindow(root.appFor(panel.selected))
+                    onTriggered: {
+                        const tile = tiles.children.find(child => child.modelData === panel.selected);
+                        if (root.cfg.launchAnimation && tile?.contentItem?.bounce) tile.contentItem.bounce();
+                        root.newWindow(root.appFor(panel.selected));
+                    }
+                }
+                Menu {
+                    id: recentMenu
+                    title: "Documentos recentes"
+                    enabled: panel.documents.length > 0
+                    Instantiator {
+                        model: panel.documents
+                        onObjectAdded: (index, object) => recentMenu.insertItem(index, object)
+                        onObjectRemoved: (index, object) => recentMenu.removeItem(object)
+                        delegate: DockOption {
+                            lightMode: root.light
+                            required property var modelData
+                            text: modelData.name
+                            onTriggered: root.cmd("open-document", panel.selected, modelData.uri)
+                        }
+                    }
                 }
                 Instantiator {
                     model: panel.selectedWins
@@ -444,6 +664,7 @@ ShellRoot {
                     onObjectRemoved: (index, object) => menu.removeItem(object)
                     delegate: DockOption {
                         id: windowRow
+                        lightMode: root.light
                         required property var modelData
                         implicitHeight: 68
                         text: modelData.title
@@ -462,32 +683,31 @@ ShellRoot {
                                 text: windowRow.text
                                 textFormat: Text.PlainText
                                 elide: Text.ElideRight
-                                color: "#f4f4fa"
+                                color: root.ink
                             }
                             Button {
                                 text: windowRow.modelData.parked ? "Restaurar" : "Minimizar"
                                 Accessible.name: text + " " + windowRow.text
-                                onClicked: {
-                                    const w = windowRow.modelData;
-                                    menu.close();
-                                    root.cmd(w.parked ? "focus" : "minimize", w.address);
-                                }
+                                onPressed: panel.toggleMenuWindow(windowRow.modelData)
                             }
                         }
                     }
                 }
                 DockOption {
+                    lightMode: root.light
                     visible: panel.selectedWins.length > 0
                     destructive: true
                     text: "Forçar encerramento do aplicativo…"
                     onTriggered: root.cmd("force", panel.selectedWins[0].address)
                 }
                 DockOption {
+                    lightMode: root.light
                     visible: !!panel.selected
                     text: root.cfg.pins.includes(panel.selected) ? "Desafixar" : "Fixar"
                     onTriggered: root.set("pins", root.cfg.pins.includes(panel.selected) ? root.cfg.pins.filter(p => p !== panel.selected) : [...root.cfg.pins, panel.selected])
                 }
                 DockOption {
+                    lightMode: root.light
                     visible: panel.orderedKeys().indexOf(panel.selected) > 0
                     text: "Mover uma posição antes"
                     onTriggered: panel.reorder(panel.selected, panel.orderedKeys().indexOf(panel.selected) - 1)
@@ -495,23 +715,27 @@ ShellRoot {
                 Repeater {
                     model: panel.selected ? [] : root.cfg.folders
                     DockOption {
+                        lightMode: root.light
                         required property string modelData
                         text: "📁 " + modelData
                         onTriggered: Quickshell.execDetached(["gio", "open", modelData])
                     }
                 }
                 DockOption {
+                    lightMode: root.light
                     visible: !panel.selected
                     text: "Abrir lixeira"
                     onTriggered: Quickshell.execDetached(["gio", "open", "trash:///"])
                 }
                 DockOption {
+                    lightMode: root.light
                     destructive: true
                     visible: !panel.selected
                     text: "Esvaziar lixeira…"
                     onTriggered: root.cmd("empty")
                 }
                 DockOption {
+                    lightMode: root.light
                     text: "Configurar dock…"
                     onTriggered: root.cmd("settings")
                 }
@@ -535,6 +759,10 @@ ShellRoot {
             DockSettings {
                 visible: true
                 cfg: root.cfg
+                lightMode: root.light
+                motion: root.motion
+                systemAccent: root.focusAccent
+                color: root.background
                 onEdited: (key, value) => root.set(key, value)
                 onRequested: action => root.cmd(action)
             }

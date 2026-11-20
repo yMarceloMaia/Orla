@@ -5,6 +5,9 @@ import Quickshell
 
 FloatingWindow {
     id: page
+    required property bool lightMode
+    required property bool motion
+    required property color systemAccent
     required property var cfg
     signal edited(string key, var value)
     signal requested(string action)
@@ -12,10 +15,10 @@ FloatingWindow {
     visible: false
     implicitWidth: 510
     implicitHeight: 600
-    color: "#202127"
-    readonly property color ink: "#f3f2f6"
-    readonly property color muted: "#b9b9c4"
-    readonly property color accent: "#c4caff"
+    color: lightMode ? "#eff0f5" : "#202127"
+    readonly property color ink: lightMode ? "#24252d" : "#f3f2f6"
+    readonly property color muted: lightMode ? "#555965" : "#b9b9c4"
+    readonly property color accent: lightMode ? Qt.darker(systemAccent, 1.25) : Qt.lighter(systemAccent, 1.45)
 
     component Caption: Text {
         color: page.muted
@@ -25,8 +28,8 @@ FloatingWindow {
     component Card: Rectangle {
         Layout.fillWidth: true
         radius: 14
-        color: "#2b2c33"
-        border.color: "#414249"
+        color: page.lightMode ? "#fcfcff" : "#2b2c33"
+        border.color: page.lightMode ? "#cdd0db" : "#414249"
     }
     component Action: C.Button {
         id: button
@@ -35,14 +38,14 @@ FloatingWindow {
         rightPadding: 12
         contentItem: Text {
             text: button.text
-            color: button.checked ? "#202231" : page.ink
+            color: button.checked ? (page.lightMode ? "white" : "#171821") : page.ink
             font.pixelSize: 13
             horizontalAlignment: Text.AlignHCenter
             verticalAlignment: Text.AlignVCenter
         }
         background: Rectangle {
             radius: 8
-            color: button.checked ? page.accent : button.hovered ? "#50515f" : "#393a44"
+            color: button.checked ? page.accent : button.hovered ? (page.lightMode ? "#d4d9e5" : "#50515f") : (page.lightMode ? "#e4e7ee" : "#393a44")
             border.color: button.activeFocus ? page.accent : "transparent"
         }
     }
@@ -74,6 +77,7 @@ FloatingWindow {
                 x: toggle.checked ? 20 : 3
                 color: toggle.checked ? "#35374b" : "#eeeef4"
                 Behavior on x {
+                    enabled: page.motion
                     NumberAnimation {
                         duration: 110
                     }
@@ -158,6 +162,59 @@ FloatingWindow {
                             page.edited("size", value)
                         onMoved: if (!pressed)
                             page.edited("size", value)
+                    }
+                    Caption {
+                        text: "Aparência"
+                    }
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Repeater {
+                            model: ["Sistema", "Clara", "Escura"]
+                            Action {
+                                required property int index
+                                required property string modelData
+                                property string mode: ["system", "light", "dark"][index]
+                                Layout.fillWidth: true
+                                text: modelData
+                                checked: page.cfg.appearance === mode
+                                onClicked: page.edited("appearance", mode)
+                            }
+                        }
+                    }
+                    Toggle {
+                        text: "Fundo translúcido"
+                        checked: page.cfg.glass
+                        onClicked: page.edited("glass", checked)
+                    }
+                    Toggle {
+                        text: "Reduzir movimento"
+                        checked: page.cfg.reduceMotion
+                        onClicked: page.edited("reduceMotion", checked)
+                    }
+                    Toggle {
+                        text: "Animar abertura dos aplicativos"
+                        checked: page.cfg.launchAnimation
+                        onClicked: page.edited("launchAnimation", checked)
+                    }
+                    Toggle {
+                        text: "Indicar aplicativos abertos"
+                        checked: page.cfg.indicators
+                        onClicked: page.edited("indicators", checked)
+                    }
+                    Toggle {
+                        text: "Mostrar janelas minimizadas na dock"
+                        checked: page.cfg.separateMinimized
+                        onClicked: page.edited("separateMinimized", checked)
+                    }
+                    Toggle {
+                        text: "Mostrar aplicativos recentes"
+                        checked: page.cfg.recentApps
+                        onClicked: page.edited("recentApps", checked)
+                    }
+                    Toggle {
+                        text: "Mostrar pastas como pilhas"
+                        checked: page.cfg.stacks
+                        onClicked: page.edited("stacks", checked)
                     }
                     Toggle {
                         text: "Ocultar automaticamente"

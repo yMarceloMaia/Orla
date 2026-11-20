@@ -6,6 +6,8 @@ import select
 import signal
 import socket
 import subprocess
+import time
+import tomllib
 import sys
 from pathlib import Path
 
@@ -30,12 +32,39 @@ def dispatch(expr):
         raise RuntimeError("Hyprland recusou a operação")
 
 
+VISUAL_DEFAULTS = dict(glass=True, reduceMotion=False, launchAnimation=True, indicators=True, appearance="system")
+theme_path = Path(os.getenv("XDG_STATE_HOME", Path.home() / ".local/state")) / "omarchy/current/theme/colors.toml"
+visual_cache = {}
+visual_checked = -10.
+
+
+def system_visuals():
+    global visual_checked, visual_cache
+    now = time.monotonic()
+    if now - visual_checked < 3:
+        return visual_cache
+    try:
+        theme = tomllib.loads(theme_path.read_text())
+    except (OSError, ValueError):
+        theme = {}
+    try:
+        animations = json.loads(run("hyprctl", "-j", "getoption", "animations:enabled")).get("bool", True)
+        blur = json.loads(run("hyprctl", "-j", "getoption", "decoration:blur:enabled")).get("bool", False)
+    except (ValueError, subprocess.SubprocessError):
+        animations, blur = True, False
+    visual_cache = dict(mode=theme.get("mode"), accent=theme.get("accent"),
+                        background=theme.get("background"), foreground=theme.get("foreground"),
+                        animations=animations, blur=blur)
+    visual_checked = now
+    return visual_cache
+
+
 def settings():
     if CONFIG.exists():
-        return json.loads(CONFIG.read_text())
+        return {**VISUAL_DEFAULTS, "recentApps": True, "separateMinimized": True, "stacks": True, **json.loads(CONFIG.read_text())}
     native = Path.home() / ".config/omarchy/shell.json"
     pins = json.loads(native.read_text()).get("dock", {}).get("pinned", []) if native.exists() else []
-    return dict(pins=pins, size=46, position="bottom", auto=True, zoom=True, folders=[str(Path.home())])
+    return dict(**VISUAL_DEFAULTS, recentApps=True, separateMinimized=True, stacks=True, pins=pins, size=46, position="bottom", auto=True, zoom=True, folders=[str(Path.home())])
 
 
 def save(cfg):
@@ -195,7 +224,7 @@ def snapshot():
     for w in clients:
         w["origin"] = origin(w) if parked(w) or native_parked(w) else w["workspace"]["id"]
         w["parked"] = parked(w) or native_parked(w)
-    return dict(clients=clients, monitors=query("monitors"), active=query("activewindow").get("address"), cfg=settings())
+    return dict(visuals=system_visuals(), clients=clients, monitors=query("monitors"), active=query("activewindow").get("address"), cfg=settings())
 
 
 def watch():
@@ -203,8 +232,22 @@ def watch():
     with socket.socket(socket.AF_UNIX) as sock:
         sock.connect(str(path))
         last = None
+        previous = []
+        history_file = CONFIG.parent / "recent-apps.json"
+        history = json.loads(history_file.read_text()) if history_file.exists() else []
         while True:
-            data = json.dumps(snapshot())
+            state = snapshot()
+            running = list(dict.fromkeys(c["initialClass"] or c["class"] for c in state["clients"] if c.get("mapped")))
+            closed = [key for key in previous if key not in running]
+            previous = running
+            if closed and state["cfg"]["recentApps"]:
+                history = list(dict.fromkeys(closed + history))[:12]
+                history_file.parent.mkdir(parents=True, exist_ok=True)
+                tmp = history_file.with_suffix(".tmp")
+                tmp.write_text(json.dumps(history))
+                tmp.replace(history_file)
+            state["recent"] = history
+            data = json.dumps(state)
             if data != last:
                 print(data, flush=True)
                 last = data
@@ -240,9 +283,97 @@ def show_settings():
         window_action("focus", window["address"])
 
 
+def desktop_entry(app_id):
+    from gi.repository import GioUnix
+    try:
+        return GioUnix.DesktopAppInfo.new(app_id.removesuffix(".desktop") + ".desktop")
+    except TypeError:
+        return None
+
+
+def documents(app_id):
+    from urllib.parse import urlparse, unquote
+    from xml.etree import ElementTree
+    entry = desktop_entry(app_id)
+    if not entry or not (entry.supports_files() or entry.supports_uris()):
+        return []
+    path = Path(os.getenv("XDG_DATA_HOME", Path.home() / ".local/share")) / "recently-used.xbel"
+    if not path.exists():
+        return []
+    names = {app_id.casefold(), entry.get_name().casefold(), Path(entry.get_executable()).name.casefold()}
+    records = []
+    try:
+        bookmarks = ElementTree.parse(path).getroot().findall("bookmark")
+    except (OSError, ElementTree.ParseError):
+        return []
+    for bookmark in bookmarks:
+        uri = bookmark.get("href", "")
+        parsed = urlparse(uri)
+        if parsed.scheme != "file" or parsed.netloc not in ("", "localhost"):
+            continue
+        matches = [a for a in bookmark.findall(".//{*}application") if a.get("name", "").casefold() in names]
+        if matches and (file := Path(unquote(parsed.path))).is_file():
+            date = max(a.get("modified", "") for a in matches)
+            records.append((date, {"name": file.name, "uri": uri}))
+    return [doc for _, doc in sorted(records, key=lambda item: item[0], reverse=True)[:5]]
+
+
+def dropped_files(app_id, urls, launch):
+    from gi.repository import Gio
+    from urllib.parse import urlsplit
+    from stat import S_ISREG, S_ISDIR
+
+    if not 0 < len(urls) <= 128 or "/" in app_id:
+        return False
+    entry = desktop_entry(app_id)
+    if not entry or not (entry.supports_files() or entry.supports_uris()):
+        return False
+    # VS Code accepts local paths through %F, but advertises only workspace
+    # files for desktop associations. Keep other apps on the MIME-based path.
+    editor_paths = entry.get_id() in {"com.microsoft.VSCode.desktop", "code.desktop"}
+    types = entry.get_supported_types() or []
+    files = []
+    for uri in urls:
+        parsed = urlsplit(uri)
+        if parsed.scheme != "file" or parsed.netloc not in ("", "localhost"):
+            return False
+        file = Gio.File.new_for_uri(uri)
+        path = file.get_path()
+        if not path:
+            return False
+        mode = os.stat(path).st_mode
+        if not (S_ISREG(mode) or S_ISDIR(mode)):
+            return False
+        if not editor_paths:
+            info = file.query_info("standard::content-type", Gio.FileQueryInfoFlags.NONE, None)
+            actual = info.get_content_type()
+            if not actual or not any(Gio.content_type_is_a(actual, t) or
+                                     (t.endswith("/*") and actual.startswith(t[:-1])) for t in types):
+                return False
+        files.append(file)
+    if launch:
+        entry.launch(files, None)
+    return True
+
+
 def main(action, *args):
+    if action in ("drop-check", "drop-open"):
+        from gi.repository import GLib
+        try:
+            ok = dropped_files(args[0], args[1:], action == "drop-open")
+        except (OSError, ValueError, GLib.Error):
+            ok = False
+        raise SystemExit(0 if ok else 1)
     if action == "run-shell":
         os.execlp("quickshell", "quickshell", "-n", "-p", str(ROOT / "shell.qml"))
+    if action == "documents":
+        print(json.dumps(documents(args[0])))
+        return
+    if action == "open-document":
+        entry = desktop_entry(args[0])
+        if entry:
+            entry.launch_uris([args[1]], None)
+        return
     if action == "settings":
         return show_settings()
     if action == "watch":

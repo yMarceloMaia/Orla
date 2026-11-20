@@ -21,6 +21,6 @@ unlink "$unit"
 unlink "$cmd"
 systemctl --user daemon-reload
 if [[ ${1:-} == --purge && -d $HOME/.config/orla ]]; then
-  rm -f -- "$HOME/.config/orla/settings.json"
+  rm -f -- "$HOME/.config/orla/settings.json" "$HOME/.config/orla/recent-apps.json"
   rmdir --ignore-fail-on-non-empty "$HOME/.config/orla"
 fi

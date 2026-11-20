@@ -4,7 +4,7 @@ Dock para Omarchy e Hyprland, inspirada na [dock do Grassfield](https://github.c
 
 ## Instalação
 
-Execute os comandos **como seu usuário, em uma sessão gráfica do Omarchy**. A Orla usa a configuração Lua do Hyprland e o systemd de usuário. A combinação testada foi Omarchy 4.5, Hyprland 0.56.2 e Quickshell 0.3.2 com Qt 6. Outros requisitos são Git, Python 3, Zenity e GIO. O instalador verifica os comandos necessários e usa os pacotes já presentes no sistema.
+Execute os comandos **como seu usuário, em uma sessão gráfica do Omarchy**. A Orla usa a configuração Lua do Hyprland e o systemd de usuário. A combinação testada foi Omarchy 4.5, Hyprland 0.56.2 e Quickshell 0.3.2 com Qt 6. Outros requisitos são Git, Python 3 com PyGObject (no Arch, `python-gobject`), Zenity e GIO. O instalador verifica os comandos necessários e usa os pacotes já presentes no sistema.
 
 ```bash
 git clone https://github.com/yMarceloMaia/Orla.git ~/.local/share/orla
@@ -25,10 +25,15 @@ Ao habilitar a Orla, a dock aparece na sessão atual e volta nos próximos login
 | Clique com várias janelas | Restaura primeiro uma janela minimizada. Quando todas estão visíveis, alterna entre elas. |
 | Passe o ponteiro sobre um app com várias janelas | Mostra miniaturas. Clique em uma para ir diretamente à janela. |
 | Botão direito | Mostra as janelas individualmente, ações de minimizar/restaurar e opções de fixação. |
+| Arraste arquivos locais sobre um aplicativo | O contorno indica que o aplicativo aceita todos os formatos selecionados. Solte sobre o ícone para abrir os arquivos nele. |
 | Botão do meio | Solicita uma nova janela. O toque de três dedos também funciona se o touchpad emitir clique do meio. Aplicativos de instância única podem reutilizar uma janela. |
 | Segure e arraste | Os ícones vizinhos abrem espaço. Solte dentro da dock para salvar a ordem ou fora para cancelar. |
 
 Na engrenagem, escolha **Configurar dock…** para ajustar posição, tamanho, ampliação, ocultação automática e pastas de acesso rápido. O menu também dá acesso à lixeira. Em tela cheia, a dock se oculta no monitor correspondente, inclusive quando configurada para ficar sempre visível.
+
+A divisória entre os aplicativos e as pastas também ajusta o tamanho dos ícones. Arraste-a para longe da borda para aumentar ou em direção à borda para diminuir.
+
+Nas configurações, você pode exibir pastas em pilha, até três aplicativos fechados recentemente e uma miniatura separada para cada janela minimizada do workspace. Clique na pasta para explorar os arquivos por data ou nome e na miniatura para restaurar a janela. O menu de aplicativos compatíveis mostra até cinco documentos locais que eles registraram no histórico de recentes do desktop.
 
 ## Comandos e recuperação
 

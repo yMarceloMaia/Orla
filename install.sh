@@ -4,6 +4,7 @@ root=$(cd -- "$(dirname -- "$0")" && pwd -P)
 for tool in python3 quickshell qs hyprctl omarchy systemctl zenity gio; do
   command -v "$tool" >/dev/null || { echo "Comando necessário: $tool" >&2; exit 1; }
 done
+python3 -c 'from gi.repository import GioUnix' || { echo "Instale python-gobject para os documentos recentes." >&2; exit 1; }
 sources=(orla orla.service orla-toggle.desktop)
 targets=("$HOME/.local/bin/orla" "$HOME/.config/systemd/user/orla.service" "$HOME/.local/share/applications/orla-toggle.desktop")
 for i in "${!targets[@]}"; do
