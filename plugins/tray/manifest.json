@@ -1,0 +1,10 @@
+{
+  "apiVersion": 1,
+  "id": "orla.tray",
+  "name": "Bandeja de arquivos",
+  "widget": "Widget.qml",
+  "setting": "fileTray",
+  "defaultEnabled": true,
+  "order": 0,
+  "service": "Service.qml"
+}

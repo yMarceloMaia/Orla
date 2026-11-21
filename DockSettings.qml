@@ -8,6 +8,7 @@ FloatingWindow {
     required property bool lightMode
     required property bool motion
     required property color systemAccent
+    required property var catalog
     required property var cfg
     signal edited(string key, var value)
     signal requested(string action)
@@ -59,6 +60,7 @@ FloatingWindow {
         implicitHeight: 36
         padding: 0
         contentItem: Text {
+            textFormat: Text.PlainText
             text: toggle.text
             color: page.ink
             font.pixelSize: 14
@@ -325,31 +327,33 @@ FloatingWindow {
                         anchors.fill: parent
                         anchors.margins: 16
                         spacing: 8
-                        Toggle {
-                            text: "Mostrar bandeja de arquivos"
-                            checked: page.cfg.fileTray !== false
-                            onClicked: page.edited("fileTray", checked)
-                        }
-                        Toggle {
-                            text: "Mostrar player de mídia"
-                            checked: page.cfg.mediaPlayer !== false
-                            onClicked: page.edited("mediaPlayer", checked)
-                        }
-                        Toggle {
-                            text: "Mostrar atividade do GitHub"
-                            checked: page.cfg.githubWidget === true
-                            onClicked: page.edited("githubWidget", checked)
-                        }
-                        Toggle {
-                            visible: page.cfg.githubWidget === true
-                            text: "Alertar sobre comentários e conflitos nos meus PRs"
-                            checked: page.cfg.githubAlerts !== false
-                            onClicked: page.edited("githubAlerts", checked)
-                        }
-                        Toggle {
-                            text: "Mostrar uso do Claude e Codex"
-                            checked: page.cfg.usageWidget === true
-                            onClicked: page.edited("usageWidget", checked)
+                        Repeater {
+                            model: page.catalog
+                            ColumnLayout {
+                                id: pluginSettings
+                                required property string name
+                                required property string setting
+                                required property bool defaultOn
+                                required property var options
+                                Layout.fillWidth: true
+                                Toggle {
+                                    text: pluginSettings.name
+                                    checked: page.cfg[pluginSettings.setting] ?? pluginSettings.defaultOn
+                                    onClicked: page.edited(pluginSettings.setting, checked)
+                                }
+                                Repeater {
+                                    model: pluginSettings.options
+                                    Toggle {
+                                        required property string label
+                                        required property string key
+                                        required property bool defaultOn
+                                        visible: page.cfg[pluginSettings.setting] ?? pluginSettings.defaultOn
+                                        text: label
+                                        checked: page.cfg[key] ?? defaultOn
+                                        onClicked: page.edited(key, checked)
+                                    }
+                                }
+                            }
                         }
                     }
                 }

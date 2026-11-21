@@ -1,0 +1,9 @@
+{
+  "apiVersion": 1,
+  "id": "orla.media",
+  "name": "Player de mídia",
+  "widget": "Widget.qml",
+  "setting": "mediaPlayer",
+  "defaultEnabled": true,
+  "order": 3
+}

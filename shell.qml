@@ -21,68 +21,46 @@ ShellRoot {
             clients: [],
             monitors: []
         })
-    ListModel { id: trayFiles }
-    property var planUsage: []
-    Process {
-        id: usageFetch
-        command: [root.helper, "usage"]
-        stdout: StdioCollector {
-            onStreamFinished: if (text.trim()) root.planUsage = JSON.parse(text)
-        }
-    }
-    Timer {
-        interval: 600000
-        running: root.cfg.usageWidget === true
-        triggeredOnStart: true
-        repeat: true
-        onTriggered: usageFetch.running = true
-    }
-    property var githubData: ({})
-    property var githubBaseline: null
-    property double githubSince: 0
-    function updateGithub(result) {
-        const previous = githubBaseline;
-        const watching = cfg.githubWidget && cfg.githubAlerts !== false;
-        const current = result.alerts;
-        if (watching && previous && previous.login === result.login) {
-            for (const [url, pr] of Object.entries(current)) {
-                const old = previous.alerts[url];
-                if (!old && Date.parse(pr.created) < githubSince) continue;
-                const added = pr.count - (old?.count || 0);
-                const messages = [];
-                if (added > 0) messages.push(added === 1 ? "Novo comentário" : added + " novos comentários");
-                if (pr.merge === "CONFLICTING" && old?.merge !== "CONFLICTING")
-                    messages.push("Conflito de merge");
-                if (pr.merge === "UNKNOWN" && old) pr.merge = old.merge;
-                if (messages.length)
-                    Quickshell.execDetached(["notify-send", "--app-name=Orla", "--", pr.repo + " #" + pr.number, messages.join(" · ")]);
+    ListModel { id: plugins; dynamicRoles: true }
+    property string catalogSignature: ""
+    property var services: ({})
+    function syncPlugins(catalog) {
+        const signature = JSON.stringify(catalog);
+        if (signature === catalogSignature) return;
+        catalogSignature = signature;
+        for (let i = 0; i < catalog.length; ++i) {
+            const plugin = catalog[i];
+            let j = i;
+            while (j < plugins.count && plugins.get(j).pluginId !== plugin.pluginId) ++j;
+            if (j === plugins.count) plugins.insert(i, plugin);
+            else {
+                if (j !== i) plugins.move(j, i, 1);
+                plugins.set(i, plugin);
             }
         }
-        githubBaseline = watching ? result : null;
-        githubSince = Date.now();
-        githubData = result;
+        if (plugins.count > catalog.length) plugins.remove(catalog.length, plugins.count - catalog.length);
     }
-    readonly property bool githubWatching: !!cfg.githubWidget && cfg.githubAlerts !== false
-    onGithubWatchingChanged: githubBaseline = null
-    property string githubError: ""
-    Process {
-        id: githubFetch
-        command: [root.helper, "github"]
-        stdout: StdioCollector {
-            onStreamFinished: {
-                if (!text.trim()) return;
-                const result = JSON.parse(text);
-                root.githubError = result.error || "";
-                if (!result.error) root.updateGithub(result);
+    function pluginEnabled(setting, fallback) { return cfg[setting] ?? fallback; }
+    Instantiator {
+        model: plugins
+        delegate: Loader {
+            id: serviceLoader
+            required property string pluginId
+            required property string serviceUrl
+            required property string setting
+            required property bool defaultOn
+            property var memory: ({})
+            readonly property var cfg: root.cfg
+            readonly property string helper: root.helper
+            active: !!serviceUrl && root.pluginEnabled(setting, defaultOn)
+            onServiceUrlChanged: setSource(serviceUrl, {host: serviceLoader})
+            onItemChanged: {
+                const next = Object.assign({}, root.services);
+                if (item) next[pluginId] = item;
+                else delete next[pluginId];
+                root.services = next;
             }
         }
-    }
-    Timer {
-        interval: root.githubWatching ? 300000 : 900000
-        running: root.cfg.githubWidget === true
-        triggeredOnStart: true
-        repeat: true
-        onTriggered: githubFetch.running = true
     }
     property var lastPlacement: ({})
     signal windowMinimized(var client)
@@ -129,6 +107,7 @@ ShellRoot {
                 const previous = root.state.clients;
                 const next = JSON.parse(data);
                 root.state = next;
+                root.syncPlugins(next.plugins || []);
                 for (const address of Object.keys(root.lastPlacement))
                     if (!next.clients.some(w => w.address === address && w.parked)) delete root.lastPlacement[address];
                 if (!previous.length) return;
@@ -206,7 +185,7 @@ ShellRoot {
                 endDrag();
                 menu.close();
             }
-            property bool shown: !fullscreen && (dragging !== "" || !root.cfg.auto || hover.hovered || (tipTarget?.windows?.length > 1 && !tipDelay.running) || fileDragGrace.running || fileHoverCount > 0 || menu.opened || fileTray.receiving || fileTray.opened || usageTile.opened || githubTile.opened || stack.opened || resizeSize > 0 || linger.running)
+            property bool shown: !fullscreen && (dragging !== "" || !root.cfg.auto || hover.hovered || (tipTarget?.windows?.length > 1 && !tipDelay.running) || fileDragGrace.running || fileHoverCount > 0 || menu.opened || tiles.children.some(child => child.keepOpen === true) || stack.opened || resizeSize > 0 || linger.running)
             property int fileHoverCount: 0
             property int resizeSize: 0
             readonly property int iconSize: resizeSize || root.cfg.size
@@ -726,64 +705,47 @@ ShellRoot {
                             onClicked: panel.requestWindow("focus", modelData.address)
                         }
                     }
-                    FileTray {
-                        id: fileTray
-                        visible: root.cfg.fileTray !== false
-                        files: trayFiles
-                        edge: panel.iconSize
-                        vertical: panel.vertical
-                        leftEdge: root.cfg.position === "left"
-                        surface: root.background
-                        ink: root.ink
-                        accent: root.focusAccent
-                        onHoveredChanged: panel.tip(fileTray, hovered && !opened)
-                        onOpenedChanged: if (opened && panel.tipTarget === fileTray) panel.tipTarget = null
-                    }
-                    UsageTile {
-                        id: usageTile
-                        onShowAccountHintChanged: {
-                            if (showAccountHint) panel.tip(usageTile, true);
-                            else if (panel.tipTarget === usageTile) panel.tipTarget = null;
+                    Repeater {
+                        model: plugins
+                        delegate: Loader {
+                            id: widgetHost
+                            required property string pluginId
+                            required property string widgetUrl
+                            required property string serviceUrl
+                            required property string setting
+                            required property bool defaultOn
+                            readonly property var service: root.services[pluginId] || null
+                            active: root.pluginEnabled(setting, defaultOn) && (!serviceUrl || !!service)
+                            visible: status === Loader.Ready
+                            readonly property bool keepOpen: !!item?.keepOpen
+                            readonly property var cfg: root.cfg
+                            readonly property color background: root.background
+                            readonly property color surface: root.surface
+                            readonly property color accent: root.focusAccent
+                            readonly property color ink: root.ink
+                            readonly property int edge: panel.iconSize
+                            readonly property int extent: panel.extent
+                            readonly property bool vertical: panel.vertical
+                            readonly property bool leftEdge: cfg.position === "left"
+                            readonly property bool shown: panel.shown
+                            readonly property int screenWidth: panel.screen.width
+                            readonly property int screenHeight: panel.screen.height
+                            readonly property int availableWidth: screenWidth - 28 - tiles.children.reduce(
+                                (sum, c) => sum + (c !== widgetHost && c.visible && c.width > 0 ? c.width + tiles.spacing : 0), 0)
+                            function preference(key, fallback) {
+                                return cfg["plugin." + pluginId + ".config." + key] ?? fallback;
+                            }
+                            function savePreference(key, value) {
+                                if (/^[a-zA-Z0-9_-]+$/.test(key))
+                                    root.set("plugin." + pluginId + ".config." + key, value);
+                            }
+                            function set(key, value) { root.set(key, value); }
+                            function tip(target, show) {
+                                if (show) panel.tip(target, true);
+                                else if (panel.tipTarget === target) panel.tipTarget = null;
+                            }
+                            onWidgetUrlChanged: setSource(widgetUrl, {host: widgetHost})
                         }
-                        profile: root.cfg.usageCompact === true ? "Claude" : (root.cfg.usageCompact || "all")
-                        onSelectProfile: name => root.set("usageCompact", name)
-                        visible: root.cfg.usageWidget === true
-                        edge: panel.iconSize
-                        vertical: panel.vertical
-                        leftEdge: root.cfg.position === "left"
-                        accounts: root.planUsage
-                        busy: usageFetch.running
-                        ink: root.ink
-                        surface: root.background
-                        onRefresh: usageFetch.running = true
-                    }
-                    GithubTile {
-                        id: githubTile
-                        compact: root.cfg.githubCompact === true
-                        onToggleCompact: root.set("githubCompact", !compact)
-                        visible: root.cfg.githubWidget === true
-                        edge: panel.iconSize
-                        vertical: panel.vertical
-                        leftEdge: root.cfg.position === "left"
-                        maxPanelWidth: panel.screen.width - 16
-                        maxPanelHeight: panel.screen.height - panel.extent - 16
-                        data: root.githubData
-                        errorText: root.githubError
-                        busy: githubFetch.running
-                        surface: root.background
-                        ink: root.ink
-                        onRefresh: githubFetch.running = true
-                    }
-                    MediaTile {
-                        id: mediaTile
-                        enabled: root.cfg.mediaPlayer !== false
-                        edge: panel.iconSize
-                        compact: panel.vertical || panel.screen.width < 28 + 203 + edge + tiles.spacing
-                            + tiles.children.reduce((sum, item) => sum + (item !== mediaTile && item.visible && item.width > 0 ? item.width + tiles.spacing : 0), 0)
-                        surface: root.surface
-                        ink: root.ink
-                        accent: root.focusAccent
-                        shown: panel.shown
                     }
                     ToolButton {
                         id: optionsButton
@@ -979,6 +941,7 @@ ShellRoot {
         active: false
         sourceComponent: Component {
             DockSettings {
+                catalog: plugins
                 visible: true
                 cfg: root.cfg
                 lightMode: root.light

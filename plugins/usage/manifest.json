@@ -1,0 +1,10 @@
+{
+  "apiVersion": 1,
+  "id": "orla.usage",
+  "name": "Uso do Claude e Codex",
+  "widget": "Widget.qml",
+  "setting": "usageWidget",
+  "defaultEnabled": false,
+  "order": 1,
+  "service": "Service.qml"
+}

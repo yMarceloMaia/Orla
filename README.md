@@ -17,6 +17,10 @@ O instalador cria links para o comando em `~/.local/bin`, para o serviço em `~/
 
 Ao habilitar a Orla, a dock aparece na sessão atual e volta nos próximos logins. Se a dock nativa do Omarchy estiver ativa, a Orla a desativa temporariamente e a reativa ao encerrar. As preferências ficam em `~/.config/orla/settings.json`.
 
+## Plugins e widgets
+
+Mídia, GitHub, uso de IA e bandeja de arquivos são plugins oficiais distribuídos junto com a Orla. Para instalar um widget independente ou criar o seu, consulte o [contrato de plugins v1](PLUGINS.md).
+
 ## Usar a dock
 
 | Gesto | Resultado |
