@@ -1,4 +1,4 @@
-"""Read plan limits independently for the three local CLI profiles."""
+"""Read plan limits independently for local CLI profiles."""
 import json
 import os
 import subprocess
@@ -121,7 +121,16 @@ def read(profile):
 
 
 if __name__ == "__main__":
-    profiles = [("Claude", lambda: claude(Path.home() / ".claude")),
-                ("claude-trabalho", lambda: claude(Path.home() / ".claude-trabalho")), ("Codex", codex)]
+    config = Path.home() / ".config/orla/settings.json"
+    extra = json.loads(config.read_text()).get("extraClaudeProfile") if config.exists() else None
+    primary = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude").expanduser()
+    profiles = [("Claude", lambda: claude(primary))]
+    if isinstance(extra, dict):
+        name, directory = extra.get("name"), extra.get("directory")
+        if isinstance(name, str) and name.strip() and name not in ("Claude", "Codex", "all") and isinstance(directory, str):
+            path = Path(directory).expanduser()
+            if path.is_absolute() and path != primary:
+                profiles.append((name, lambda: claude(path)))
+    profiles.append(("Codex", codex))
     with ThreadPoolExecutor(max_workers=3) as pool:
         print(json.dumps(list(pool.map(read, profiles))))

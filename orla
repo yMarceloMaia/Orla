@@ -14,7 +14,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 CONFIG = Path.home() / ".config/orla/settings.json"
-PARK = "special:marcelomaia-dock-minimized"
+PARK = "special:orla-minimized"
 PREFIX = "orla-from-"
 UNIT = "orla.service"
 MARK = CONFIG.parent / "restore-native"
@@ -33,7 +33,7 @@ def dispatch(expr):
         raise RuntimeError("Hyprland recusou a operação")
 
 
-VISUAL_DEFAULTS = dict(islands=False, fileTray=True, usageCompact=False, githubCompact=False, usageWidget=False, githubWidget=False, mediaPlayer=True, glass=True, reduceMotion=False, launchAnimation=True, indicators=True, appearance="system")
+VISUAL_DEFAULTS = dict(extraClaudeProfile=None, githubExcludedOrg="", islands=False, fileTray=True, usageCompact=False, githubCompact=False, usageWidget=False, githubWidget=False, mediaPlayer=True, glass=True, reduceMotion=False, launchAnimation=True, indicators=True, appearance="system")
 theme_path = Path(os.getenv("XDG_STATE_HOME", Path.home() / ".local/state")) / "omarchy/current/theme/colors.toml"
 visual_cache = {}
 visual_checked = -10.
@@ -84,7 +84,8 @@ def origin(w):
 
 
 def parked(w):
-    return w["workspace"]["name"] == PARK
+    name = w["workspace"]["name"]
+    return name == PARK or (name.startswith("special:") and name.endswith("-dock-minimized") and origin(w) > 0)
 
 
 def native_parked(w):
@@ -382,6 +383,19 @@ def github_activity():
     year = str(now.year)
     cmd = ["gh", "api", "--hostname", "github.com", "graphql", "-f",
            "query=" + (ROOT / "github.graphql").read_text(), "-f", "from=" + year + "-01-01T00:00:00Z", "-f", "to=" + now.isoformat()]
+    org = settings().get("githubExcludedOrg", "")
+    search = "is:pr is:open"
+    if org:
+        if not isinstance(org, str) or not re.fullmatch(r"[a-zA-Z0-9-]+", org):
+            raise ValueError("Organização inválida")
+        org_id = subprocess.check_output(["gh", "api", "--hostname", "github.com", "orgs/" + org,
+                                          "--jq", ".node_id"], text=True, timeout=20).strip()
+        cmd.extend(["-f", "orgId=" + org_id])
+        search += " -user:" + org
+    cmd.extend(["-F", "exclude=" + str(bool(org)).lower(),
+                "-f", "reviewsQuery=" + search + " review-requested:@me",
+                "-f", "authoredQuery=" + search + " author:@me"])
+
     def fetch(*variables):
         result = subprocess.run(cmd + list(variables), capture_output=True, text=True, timeout=30, check=True)
         return json.loads(result.stdout)["data"]
@@ -396,7 +410,7 @@ def github_activity():
     levels = ["NONE", "FIRST_QUARTILE", "SECOND_QUARTILE", "THIRD_QUARTILE", "FOURTH_QUARTILE"]
     excluded = {day["date"]: day["contributionCount"]
                 for week in data["viewer"]["excluded"]["contributionCalendar"]["weeks"]
-                for day in week["contributionDays"]}
+                for day in week["contributionDays"]} if org else {}
     total = 0
     weeks = []
     for week in cal["weeks"]:
@@ -408,7 +422,7 @@ def github_activity():
                 original = day["contributionCount"]
                 days[day["weekday"]] = max(1, round(levels.index(day["contributionLevel"]) * count / original)) if count else 0
         weeks.append(days)
-    payload = dict(total=total, weeks=weeks, login=data["viewer"]["login"], alerts={})
+    payload = dict(total=total, weeks=weeks, search=search, login=data["viewer"]["login"], alerts={})
     for group in ("reviews", "authored"):
         rows = []
         for pr in filter(None, data[group]["nodes"]):
@@ -493,7 +507,8 @@ def main(action, *args):
             if parked(w):
                 restore(w)
     elif action == "rescue":
-        dispatch('hl.dsp.workspace.toggle_special("marcelomaia-dock-minimized")')
+        workspace = next((w["workspace"]["name"] for w in query("clients") if parked(w)), PARK)
+        dispatch(f'hl.dsp.workspace.toggle_special({json.dumps(workspace.removeprefix("special:"))})')
     elif action == "empty":
         if confirm("Esvaziar a lixeira permanentemente?"):
             run("gio", "trash", "--empty")

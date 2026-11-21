@@ -45,12 +45,32 @@ Numa instalação nova, habilite os widgets desejados em **Configurações → W
 
 | Widget | Como conectar |
 |---|---|
-| GitHub | Instale o GitHub CLI e execute `gh auth login --hostname github.com`. A consulta usa a conta ativa para ler contribuições, PRs e checks. O código inclui um filtro fixo de organização. Os alertas de comentários e conflitos mostram o repositório e o número do PR nas notificações da área de trabalho. |
+| GitHub | Instale o GitHub CLI e execute `gh auth login --hostname github.com`. A consulta usa a conta ativa para ler contribuições, PRs e checks. Os alertas de comentários e conflitos mostram o repositório e o número do PR nas notificações da área de trabalho. |
 | Claude | Execute `claude auth login`. A Orla lê o token OAuth local de `~/.claude/.credentials.json` para consultar os limites na API da Anthropic. |
-| Segundo perfil Claude | Para usar outra conta, execute `CLAUDE_CONFIG_DIR="$HOME/.claude-trabalho" claude auth login`. A Orla procura esse diretório pelo nome e mostra o perfil como **claude-trabalho**. Sem a segunda conta, os demais perfis continuam independentes. |
 | Codex | Execute `codex login` com a conta que fornece os limites do plano. A Orla consulta o CLI local por meio de `codex app-server` e `account/rateLimits/read`. |
 
 As preferências da dock ficam em `~/.config/orla/settings.json`. Em outro computador, faça login nos CLIs com as contas que pretende consultar.
+
+#### Segundo perfil Claude (opcional)
+
+Por padrão, o painel mostra **Claude** e **Codex**. Para adicionar outra conta Claude, escolha um diretório separado e um nome para o perfil:
+
+```bash
+CLAUDE_CONFIG_DIR="$HOME/.claude-trabalho" claude auth login
+orla set extraClaudeProfile '{"name":"Trabalho","directory":"~/.claude-trabalho"}'
+```
+
+Clique em **Atualizar** no painel de uso. Para remover o perfil da dock, execute `orla set extraClaudeProfile null`. O CLI mantém a sessão autenticada.
+
+#### Filtro de organização do GitHub (opcional)
+
+Por padrão, o widget inclui todas as organizações acessíveis à conta. Para excluir uma organização dos PRs, dos alertas e do calendário, use seu login no GitHub:
+
+```bash
+orla set githubExcludedOrg '"minha-organizacao"'
+```
+
+Clique em **Atualizar** no widget do GitHub. Para limpar o filtro, use `orla set githubExcludedOrg '""'`. Essas preferências ficam no arquivo de configurações do usuário.
 
 ## Comandos e recuperação
 

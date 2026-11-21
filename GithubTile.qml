@@ -177,7 +177,7 @@ ToolButton {
             ToolButton {
                 visible: popup.group?.count > list.count
                 text: "Ver todos no GitHub"
-                onClicked: Qt.openUrlExternally("https://github.com/pulls?q=" + encodeURIComponent("is:pr is:open -user:minha-organizacao " + (popup.reviews ? "review-requested:@me" : "author:@me")))
+                onClicked: Qt.openUrlExternally("https://github.com/pulls?q=" + encodeURIComponent(tile.data.search + " " + (popup.reviews ? "review-requested:@me" : "author:@me")))
             }
         }
     }

@@ -1,8 +1,7 @@
-query($from: DateTime!, $to: DateTime!, $cursor: String, $overview: Boolean!) {
+query($from: DateTime!, $to: DateTime!, $cursor: String, $overview: Boolean!, $exclude: Boolean!, $orgId: ID, $reviewsQuery: String!, $authoredQuery: String!) {
   viewer @include(if: $overview) {
     login
-    # GitHub node ID for the minha-organizacao organization.
-    excluded: contributionsCollection(from: $from, to: $to, organizationID: "ORG_NODE_ID") {
+    excluded: contributionsCollection(from: $from, to: $to, organizationID: $orgId) @include(if: $exclude) {
       contributionCalendar { weeks { contributionDays { date contributionCount } } }
     }
     contributionsCollection(from: $from, to: $to) {
@@ -12,11 +11,11 @@ query($from: DateTime!, $to: DateTime!, $cursor: String, $overview: Boolean!) {
       }
     }
   }
-  reviews: search(query: "is:pr is:open -user:minha-organizacao review-requested:@me", type: ISSUE, first: 20) @include(if: $overview) {
+  reviews: search(query: $reviewsQuery, type: ISSUE, first: 20) @include(if: $overview) {
     issueCount
     nodes { ...pr }
   }
-  authored: search(query: "is:pr is:open -user:minha-organizacao author:@me", type: ISSUE, first: 50, after: $cursor) {
+  authored: search(query: $authoredQuery, type: ISSUE, first: 50, after: $cursor) {
     issueCount
     pageInfo { hasNextPage endCursor }
     nodes { ...pr ... on PullRequest { mergeable totalCommentsCount createdAt } }

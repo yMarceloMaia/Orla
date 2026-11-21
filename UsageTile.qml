@@ -21,18 +21,21 @@ ToolButton {
     required property color surface
     signal refresh()
     readonly property bool opened: details.opened
-    readonly property var names: ["Claude", "claude-trabalho", "Codex"]
+    readonly property var names: accounts.length ? accounts.map(a => a.name) : ["Claude", "Codex"]
+    function paletteIndex(index) {
+        return names[index] === "Codex" ? 2 : index > 0 ? 1 : 0;
+    }
     function tint(index) {
-        return ["#e49a76", "#deb66d", "#79aea7"][index];
+        return ["#e49a76", "#deb66d", "#79aea7"][paletteIndex(index)];
     }
     function weekly(index) {
         return accounts[index]?.windows.find(w => w.label === "Semanal");
     }
-    width: vertical || compact ? edge : 196
+    width: vertical || compact ? edge : names.length * 62 + 10
     height: edge
     padding: 5
     readonly property bool showAccountHint: visible && compact && hovered && !details.visible
-    Accessible.name: compact ? names[accountIndex] + " · uso semanal" : "Uso dos planos Claude, claude-trabalho e Codex"
+    Accessible.name: compact ? names[accountIndex] + " · uso semanal" : "Uso dos planos: " + names.join(", ")
     onClicked: details.open()
     background: Rectangle {
         radius: 10
@@ -40,8 +43,8 @@ ToolButton {
         gradient: tile.compact ? accountFill : null
         Gradient {
             id: accountFill
-            GradientStop { position: 0; color: ["#875036", "#806027", "#386963"][Math.max(0, tile.accountIndex)] }
-            GradientStop { position: 1; color: ["#492b21", "#44351d", "#203e3c"][Math.max(0, tile.accountIndex)] }
+            GradientStop { position: 0; color: ["#875036", "#806027", "#386963"][tile.paletteIndex(tile.accountIndex)] }
+            GradientStop { position: 1; color: ["#492b21", "#44351d", "#203e3c"][tile.paletteIndex(tile.accountIndex)] }
         }
         border.color: tile.compact ? Qt.alpha(tile.tint(tile.accountIndex), tile.hovered ? 0.85 : 0.55) : Qt.alpha(tile.ink, 0.16)
     }
@@ -105,7 +108,7 @@ ToolButton {
                     required property string modelData
                     width: 56
                     spacing: 1
-                    Text { text: parent.modelData; color: tile.ink; font.pixelSize: 10 }
+                    Text { text: parent.modelData; textFormat: Text.PlainText; width: parent.width; elide: Text.ElideRight; color: tile.ink; font.pixelSize: 10 }
                     Text { text: tile.weekly(parent.index) ? Math.round(tile.weekly(parent.index).used) + "%" : "—"; color: tile.ink; font.pixelSize: tile.edge < 40 ? 11 : 14; font.bold: true }
                     Rectangle {
                         width: parent.width; height: 3; radius: 1.5
@@ -120,7 +123,7 @@ ToolButton {
             anchors.centerIn: parent
             spacing: 4
             Repeater {
-                model: 3
+                model: tile.names.length
                 Rectangle {
                     required property int index
                     width: tile.edge * 0.64; height: 4; radius: 2
@@ -156,7 +159,7 @@ ToolButton {
                     required property string modelData
                     Layout.fillWidth: true
                     spacing: 4
-                    Label { text: profile.modelData; font.bold: true; color: tile.ink }
+                    Label { text: profile.modelData; textFormat: Text.PlainText; font.bold: true; color: tile.ink }
                     Label {
                         visible: !!text
                         text: tile.accounts[profile.index]?.error || (!tile.accounts.length ? "Consultando…" : "")
