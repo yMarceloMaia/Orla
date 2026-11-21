@@ -1,5 +1,6 @@
-query($from: DateTime!, $to: DateTime!) {
-  viewer {
+query($from: DateTime!, $to: DateTime!, $cursor: String, $overview: Boolean!) {
+  viewer @include(if: $overview) {
+    login
     # GitHub node ID for the minha-organizacao organization.
     excluded: contributionsCollection(from: $from, to: $to, organizationID: "ORG_NODE_ID") {
       contributionCalendar { weeks { contributionDays { date contributionCount } } }
@@ -11,13 +12,14 @@ query($from: DateTime!, $to: DateTime!) {
       }
     }
   }
-  reviews: search(query: "is:pr is:open -user:minha-organizacao review-requested:@me", type: ISSUE, first: 20) {
+  reviews: search(query: "is:pr is:open -user:minha-organizacao review-requested:@me", type: ISSUE, first: 20) @include(if: $overview) {
     issueCount
     nodes { ...pr }
   }
-  authored: search(query: "is:pr is:open -user:minha-organizacao author:@me", type: ISSUE, first: 20) {
+  authored: search(query: "is:pr is:open -user:minha-organizacao author:@me", type: ISSUE, first: 50, after: $cursor) {
     issueCount
-    nodes { ...pr }
+    pageInfo { hasNextPage endCursor }
+    nodes { ...pr ... on PullRequest { mergeable totalCommentsCount createdAt } }
   }
 }
 fragment pr on PullRequest {

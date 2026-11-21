@@ -238,11 +238,11 @@ def snapshot():
     clients = []
     for w in query("clients"):
         stored = parked(w) or native_parked(w)
-        client = {k: w[k] for k in ("address", "initialClass", "class", "mapped", "hidden", "fullscreen", "title")}
+        client = {k: w[k] for k in ("address", "initialClass", "class", "mapped", "hidden", "fullscreen", "title", "at", "size", "monitor")}
         client.update(workspace={"id": w["workspace"]["id"]}, parked=stored,
                       origin=origin(w) if stored else w["workspace"]["id"])
         clients.append(client)
-    monitors = [{k: m[k] for k in ("name", "activeWorkspace", "specialWorkspace")} for m in query("monitors")]
+    monitors = [{k: m[k] for k in ("id", "name", "x", "y", "activeWorkspace", "specialWorkspace")} for m in query("monitors")]
     return dict(visuals=system_visuals(), clients=clients, monitors=monitors, active=query("activewindow").get("address"), cfg=settings())
 
 
@@ -382,8 +382,16 @@ def github_activity():
     year = str(now.year)
     cmd = ["gh", "api", "--hostname", "github.com", "graphql", "-f",
            "query=" + (ROOT / "github.graphql").read_text(), "-f", "from=" + year + "-01-01T00:00:00Z", "-f", "to=" + now.isoformat()]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=25, check=True)
-    data = json.loads(result.stdout)["data"]
+    def fetch(*variables):
+        result = subprocess.run(cmd + list(variables), capture_output=True, text=True, timeout=30, check=True)
+        return json.loads(result.stdout)["data"]
+
+    data = fetch("-F", "overview=true")
+    authored = data["authored"]
+    page = authored
+    while page["pageInfo"]["hasNextPage"]:
+        page = fetch("-F", "overview=false", "-f", "cursor=" + page["pageInfo"]["endCursor"])["authored"]
+        authored["nodes"].extend(page["nodes"])
     cal = data["viewer"]["contributionsCollection"]["contributionCalendar"]
     levels = ["NONE", "FIRST_QUARTILE", "SECOND_QUARTILE", "THIRD_QUARTILE", "FOURTH_QUARTILE"]
     excluded = {day["date"]: day["contributionCount"]
@@ -400,14 +408,20 @@ def github_activity():
                 original = day["contributionCount"]
                 days[day["weekday"]] = max(1, round(levels.index(day["contributionLevel"]) * count / original)) if count else 0
         weeks.append(days)
-    payload = dict(total=total, weeks=weeks)
+    payload = dict(total=total, weeks=weeks, login=data["viewer"]["login"], alerts={})
     for group in ("reviews", "authored"):
         rows = []
         for pr in filter(None, data[group]["nodes"]):
+            if group == "authored":
+                payload["alerts"][pr["url"]] = dict(count=pr["totalCommentsCount"], merge=pr["mergeable"],
+                                                     created=pr["createdAt"], repo=pr["repository"]["nameWithOwner"],
+                                                     number=pr["number"])
+            if len(rows) >= 20:
+                continue
             commits = pr["commits"]["nodes"]
             rollup = commits[-1]["commit"]["statusCheckRollup"] if commits else None
             rows.append(dict(title=pr["title"], url=pr["url"], repo=pr["repository"]["nameWithOwner"],
-                             head=pr["headRefName"], base=pr["baseRefName"],
+                             head=pr["headRefName"], base=pr["baseRefName"], conflict=pr.get("mergeable") == "CONFLICTING",
                              number=pr["number"], checks=rollup["state"] if rollup else "NONE"))
         payload[group] = dict(count=data[group]["issueCount"], rows=rows)
     return payload

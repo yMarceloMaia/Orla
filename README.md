@@ -39,6 +39,19 @@ Nas configurações, você pode exibir pastas em pilha, até três aplicativos f
 
 Arraste um ou mais arquivos locais para o ícone da bandeja. A contagem é compartilhada entre os monitores e workspaces. Arraste o próprio ícone para entregar o último arquivo adicionado, ou clique na bandeja e arraste um nome da lista para escolher outro. O botão **×** retira apenas a referência. Os arquivos originais permanecem onde estão. A bandeja é temporária e esvazia quando a dock reinicia.
 
+### Integrações opcionais
+
+Numa instalação nova, habilite os widgets desejados em **Configurações → Widgets** depois de autenticar os CLIs no computador. Os executáveis precisam estar disponíveis no ambiente do serviço de usuário.
+
+| Widget | Como conectar |
+|---|---|
+| GitHub | Instale o GitHub CLI e execute `gh auth login --hostname github.com`. A consulta usa a conta ativa para ler contribuições, PRs e checks. O código inclui um filtro fixo de organização. Os alertas de comentários e conflitos mostram o repositório e o número do PR nas notificações da área de trabalho. |
+| Claude | Execute `claude auth login`. A Orla lê o token OAuth local de `~/.claude/.credentials.json` para consultar os limites na API da Anthropic. |
+| Segundo perfil Claude | Para usar outra conta, execute `CLAUDE_CONFIG_DIR="$HOME/.claude-trabalho" claude auth login`. A Orla procura esse diretório pelo nome e mostra o perfil como **claude-trabalho**. Sem a segunda conta, os demais perfis continuam independentes. |
+| Codex | Execute `codex login` com a conta que fornece os limites do plano. A Orla consulta o CLI local por meio de `codex app-server` e `account/rateLimits/read`. |
+
+As preferências da dock ficam em `~/.config/orla/settings.json`. Em outro computador, faça login nos CLIs com as contas que pretende consultar.
+
 ## Comandos e recuperação
 
 | Comando | Função |

@@ -38,6 +38,32 @@ ShellRoot {
         onTriggered: usageFetch.running = true
     }
     property var githubData: ({})
+    property var githubBaseline: null
+    property double githubSince: 0
+    function updateGithub(result) {
+        const previous = githubBaseline;
+        const watching = cfg.githubWidget && cfg.githubAlerts !== false;
+        const current = result.alerts;
+        if (watching && previous && previous.login === result.login) {
+            for (const [url, pr] of Object.entries(current)) {
+                const old = previous.alerts[url];
+                if (!old && Date.parse(pr.created) < githubSince) continue;
+                const added = pr.count - (old?.count || 0);
+                const messages = [];
+                if (added > 0) messages.push(added === 1 ? "Novo comentário" : added + " novos comentários");
+                if (pr.merge === "CONFLICTING" && old?.merge !== "CONFLICTING")
+                    messages.push("Conflito de merge");
+                if (pr.merge === "UNKNOWN" && old) pr.merge = old.merge;
+                if (messages.length)
+                    Quickshell.execDetached(["notify-send", "--app-name=Orla", "--", pr.repo + " #" + pr.number, messages.join(" · ")]);
+            }
+        }
+        githubBaseline = watching ? result : null;
+        githubSince = Date.now();
+        githubData = result;
+    }
+    readonly property bool githubWatching: !!cfg.githubWidget && cfg.githubAlerts !== false
+    onGithubWatchingChanged: githubBaseline = null
     property string githubError: ""
     Process {
         id: githubFetch
@@ -47,17 +73,19 @@ ShellRoot {
                 if (!text.trim()) return;
                 const result = JSON.parse(text);
                 root.githubError = result.error || "";
-                if (!result.error) root.githubData = result;
+                if (!result.error) root.updateGithub(result);
             }
         }
     }
     Timer {
-        interval: 900000
+        interval: root.githubWatching ? 300000 : 900000
         running: root.cfg.githubWidget === true
         triggeredOnStart: true
         repeat: true
         onTriggered: githubFetch.running = true
     }
+    property var lastPlacement: ({})
+    signal windowMinimized(var client)
     property var cfg: state.cfg
     readonly property bool light: cfg.appearance === "light" || (cfg.appearance !== "dark" && (state.visuals?.mode ? state.visuals.mode === "light" : Qt.styleHints.colorScheme === Qt.Light))
     readonly property bool motion: !cfg.reduceMotion && state.visuals?.animations !== false
@@ -98,7 +126,19 @@ ShellRoot {
         running: true
         stdout: SplitParser {
             onRead: data => {
-                root.state = JSON.parse(data);
+                const previous = root.state.clients;
+                const next = JSON.parse(data);
+                root.state = next;
+                for (const address of Object.keys(root.lastPlacement))
+                    if (!next.clients.some(w => w.address === address && w.parked)) delete root.lastPlacement[address];
+                if (!previous.length) return;
+                for (const window of next.clients) {
+                    const old = previous.find(w => w.address === window.address);
+                    if (old && !old.parked && window.parked) {
+                        root.lastPlacement[window.address] = old;
+                        if (root.motion) root.windowMinimized(old);
+                    }
+                }
             }
         }
         onExited: retry.restart()
@@ -115,6 +155,47 @@ ShellRoot {
             required property var modelData
             screen: modelData
             property var monitor: root.state.monitors.find(m => m.name === modelData.name)
+            WindowTransition {
+                id: transition
+                screen: panel.screen
+                accent: root.focusAccent
+                onRestoreReady: address => root.cmd("focus", address)
+            }
+            Connections {
+                target: root
+                function onWindowMinimized(client) { panel.animateWindow(client, false); }
+            }
+            function requestWindow(action, ...addresses) {
+                if (root.motion && (action === "cycle" || action === "focus")) {
+                    for (const address of addresses) {
+                        const parked = root.state.clients.find(w => w.address === address && w.parked);
+                        if (!parked) continue;
+                        if (transition.pendingAddress === address) return;
+                        const saved = root.lastPlacement[address];
+                        const geometry = saved || Object.assign({}, parked, { workspace: {id: parked.origin}, monitor: panel.monitor?.id });
+                        if (animateWindow(geometry, true)) return;
+                        break;
+                    }
+                }
+                root.cmd(action, ...addresses);
+            }
+            function animateWindow(client, restored) {
+                const mon = panel.monitor;
+                if (!mon || panel.fullscreen || client.monitor !== mon.id ||
+                    client.workspace.id !== mon.activeWorkspace.id || !client.size || !client.at) return;
+                const key = root.key(client);
+                const tile = tiles.children.find(item => item.modelData === key && item.app !== undefined);
+                if (!tile || client.size[0] <= 0 || client.size[1] <= 0) return;
+                const center = tile.mapToItem(panel.contentItem, tile.width / 2, tile.height / 2);
+                const cx = panel.vertical ? (root.cfg.position === "left" ? panel.extent / 2 : panel.screen.width - panel.extent / 2)
+                                          : (panel.screen.width - panel.width) / 2 + center.x;
+                const cy = panel.vertical ? (panel.screen.height - panel.height) / 2 + center.y : panel.screen.height - panel.extent / 2;
+                const edge = panel.iconSize;
+                transition.play(Qt.rect(client.at[0] - mon.x, client.at[1] - mon.y, client.size[0], client.size[1]),
+                                Qt.rect(cx - edge / 2, cy - edge / 2, edge, edge),
+                                Quickshell.iconPath(tile.app?.icon || "application-x-executable", true), restored, client.address);
+                return true;
+            }
             property var wins: root.state.clients.filter(c => monitor && c.origin === monitor.activeWorkspace.id).sort((a, b) => a.address.localeCompare(b.address))
             property bool vertical: root.cfg.position !== "bottom"
             readonly property int displayedWorkspace: monitor?.specialWorkspace?.id || monitor?.activeWorkspace?.id || 0
@@ -183,7 +264,7 @@ ShellRoot {
                 menu.open();
             }
             function toggleMenuWindow(window) {
-                root.cmd(window.parked ? "focus" : "minimize", window.address);
+                panel.requestWindow(window.parked ? "focus" : "minimize", window.address);
                 menu.close();
             }
             property Item tipTarget: null
@@ -270,7 +351,7 @@ ShellRoot {
                                 TapHandler {
                                     onTapped: {
                                         const address = parent.modelData.address;
-                                        root.cmd("focus", address);
+                                        panel.requestWindow("focus", address);
                                         panel.tipTarget = null;
                                     }
                                 }
@@ -298,14 +379,23 @@ ShellRoot {
             anchors.left: root.cfg.position === "left"
             anchors.right: root.cfg.position === "right"
             property int extent: panel.iconSize + 22
-            implicitWidth: vertical ? (shown ? extent : 3) : Math.min(screen.width, tiles.implicitWidth + 28)
-            implicitHeight: vertical ? Math.min(screen.height, tiles.implicitHeight + 28) : (shown ? extent : 3)
+            property real reveal: shown ? 1 : 0
+            Behavior on reveal {
+                enabled: root.motion && root.cfg.auto && !panel.fullscreen
+                NumberAnimation {
+                    duration: 170
+                    easing.type: Easing.OutCubic
+                }
+            }
+            readonly property bool expanded: shown || reveal > 0
+            implicitWidth: vertical ? (expanded ? extent : 3) : Math.min(screen.width, tiles.implicitWidth + 28)
+            implicitHeight: vertical ? Math.min(screen.height, tiles.implicitHeight + 28) : (expanded ? extent : 3)
             exclusiveZone: root.cfg.auto ? 0 : extent
             WlrLayershell.layer: WlrLayer.Overlay
             WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
             color: "transparent"
             WlrLayershell.namespace: "orla-dock"
-            BackgroundEffect.blurRegion: panel.shown && !root.cfg.islands && root.cfg.glass && root.state.visuals?.blur ? shelfRegion : null
+            BackgroundEffect.blurRegion: panel.reveal > 0 && !root.cfg.islands && root.cfg.glass && root.state.visuals?.blur ? shelfRegion : null
             Region {
                 id: shelfRegion
                 item: shelf
@@ -333,7 +423,12 @@ ShellRoot {
             Rectangle {
                 id: shelf
                 anchors.fill: parent
-                visible: panel.shown
+                visible: panel.reveal > 0
+                opacity: panel.reveal
+                transform: Translate {
+                    x: panel.vertical ? (root.cfg.position === "left" ? -1 : 1) * panel.extent * (1 - panel.reveal) : 0
+                    y: panel.vertical ? 0 : panel.extent * (1 - panel.reveal)
+                }
                 anchors.margins: 3
                 radius: 21
                 color: "transparent"
@@ -462,7 +557,7 @@ ShellRoot {
                                     app?.execute();
                                     return;
                                 }
-                                root.cmd("cycle", ...windows.map(w => w.address));
+                                panel.requestWindow("cycle", ...windows.map(w => w.address));
                             }
                             onClicked: activateApp()
                             MouseArea {
@@ -628,7 +723,7 @@ ShellRoot {
                                 capturing: panel.shown
                             }
                             onHoveredChanged: panel.tip(this, hovered)
-                            onClicked: root.cmd("focus", modelData.address)
+                            onClicked: panel.requestWindow("focus", modelData.address)
                         }
                     }
                     FileTray {
@@ -796,7 +891,7 @@ ShellRoot {
                         implicitHeight: 68
                         text: modelData.title
                         Accessible.name: text
-                        onTriggered: root.cmd("focus", modelData.address)
+                        onTriggered: panel.requestWindow("focus", modelData.address)
                         contentItem: RowLayout {
                             spacing: 8
                             WindowThumb {

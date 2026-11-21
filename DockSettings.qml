@@ -341,6 +341,12 @@ FloatingWindow {
                             onClicked: page.edited("githubWidget", checked)
                         }
                         Toggle {
+                            visible: page.cfg.githubWidget === true
+                            text: "Alertar sobre comentários e conflitos nos meus PRs"
+                            checked: page.cfg.githubAlerts !== false
+                            onClicked: page.edited("githubAlerts", checked)
+                        }
+                        Toggle {
                             text: "Mostrar uso do Claude e Codex"
                             checked: page.cfg.usageWidget === true
                             onClicked: page.edited("usageWidget", checked)

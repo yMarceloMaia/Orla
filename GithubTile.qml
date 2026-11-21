@@ -147,6 +147,12 @@ ToolButton {
                             color: Qt.alpha(tile.ink, 0.82)
                             font.pixelSize: 12
                         }
+                        Label {
+                            visible: row.modelData.conflict === true
+                            text: "Conflito de merge"
+                            color: tile.ink
+                            font.bold: true
+                        }
                         RowLayout {
                             Layout.fillWidth: true
                             Text {
