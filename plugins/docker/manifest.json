@@ -1,0 +1,10 @@
+{
+  "apiVersion": 1,
+  "id": "orla.docker",
+  "name": "Docker Manager",
+  "widget": "Widget.qml",
+  "service": "Service.qml",
+  "setting": "plugin.orla.docker.enabled",
+  "defaultEnabled": false,
+  "order": 50
+}
