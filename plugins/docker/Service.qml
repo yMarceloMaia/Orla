@@ -5,6 +5,8 @@ Item {
     id: service
     required property var host
     property var rows: []
+    property bool projectMetrics: false
+    onProjectMetricsChanged: if (projectMetrics && online) refresh()
     property int panels: 0
     property bool online: false
     property string error: ""
@@ -28,7 +30,7 @@ Item {
     function refresh() {
         if (session.running) return
         if (scan.running) { pending = true; return }
-        scan.command = ["python3", script, panels ? "detail" : "summary"]
+        scan.command = ["python3", script, (panels || projectMetrics) ? "detail" : "summary"]
         scan.running = true
     }
     property bool pending: false
@@ -101,7 +103,7 @@ Item {
         }
     }
     Timer {
-        interval: service.panels ? 5000 : 30000
+        interval: service.panels || (service.projectMetrics && service.online) ? 5000 : 30000
         running: true
         repeat: true
         triggeredOnStart: true

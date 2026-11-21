@@ -19,7 +19,17 @@ Ao habilitar a Orla, a dock aparece na sessão atual e volta nos próximos login
 
 ## Plugins e widgets
 
-Mídia, GitHub, uso de IA e bandeja de arquivos são plugins oficiais distribuídos junto com a Orla. Para instalar um widget independente ou criar o seu, consulte o [contrato de plugins v1](PLUGINS.md).
+Docker Manager, mídia, GitHub, uso de IA e bandeja de arquivos são plugins oficiais distribuídos junto com a Orla. Para instalar um widget independente ou criar o seu, consulte o [contrato de plugins v1](PLUGINS.md).
+
+Para acompanhar recursos por projeto ou executar comandos com dependências, consulte o [guia dos widgets de projetos](projects/README.md).
+
+### Docker Manager
+
+Habilite **Docker Manager** em **Configurações → Widgets**. O widget usa o CLI `docker` e o contexto configurado no ambiente do serviço da Orla. Se o Engine local exigir senha, clique em **Instalar auxiliar de autenticação…** uma vez e depois em **Desbloquear Docker**. O diálogo do Polkit recebe a senha. O auxiliar é uma cópia de `plugins/docker/manager.py` instalada em `/usr/local/lib/orla-docker-manager`, de propriedade do root. Instale-o a partir de um checkout de confiança.
+
+A sessão desbloqueada consulta somente o Docker local. Ela termina ao fechar o último painel ou após dez minutos. Controles, health checks, shell e logs pedem autorização separada. Um terminal de logs ou shell já aberto tem sua própria duração. Para atualizar o auxiliar após atualizar a Orla, execute no checkout `sudo install -o root -g root -m 0755 -- plugins/docker/manager.py /usr/local/lib/orla-docker-manager`. Para removê-lo, execute `sudo rm -- /usr/local/lib/orla-docker-manager`.
+
+Clique no widget para ver os containers por projeto Compose, com CPU e memória enquanto o painel estiver aberto. Containers sem a label `com.docker.compose.project` aparecem em **Sem projeto Compose**. Clique no container ou use o botão direito para iniciar, parar, reiniciar, copiar o ID, consultar o histórico recente de health checks ou abrir uma porta TCP publicada. O link usa HTTPS para a porta interna 443 e HTTP para as demais. Shell e logs ao vivo abrem no terminal padrão via `xdg-terminal-exec`. A imagem do container precisa fornecer `sh` para o shell interativo.
 
 ## Usar a dock
 

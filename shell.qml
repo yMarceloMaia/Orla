@@ -51,6 +51,7 @@ ShellRoot {
             required property bool defaultOn
             property var memory: ({})
             readonly property var cfg: root.cfg
+            readonly property var services: root.services
             readonly property string helper: root.helper
             active: !!serviceUrl && root.pluginEnabled(setting, defaultOn)
             onServiceUrlChanged: setSource(serviceUrl, {host: serviceLoader})

@@ -1,0 +1,10 @@
+{
+  "apiVersion": 1,
+  "id": "orla.project-monitor",
+  "name": "Recursos dos projetos",
+  "widget": "Widget.qml",
+  "service": "Service.qml",
+  "setting": "plugin.orla.project-monitor.enabled",
+  "defaultEnabled": false,
+  "order": 60
+}

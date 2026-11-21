@@ -1,0 +1,5 @@
+singleton ProjectHub 1.0 ProjectHub.qml
+ProjectWidget 1.0 ProjectWidget.qml
+Trend 1.0 Trend.qml
+ProjectMark 1.0 ProjectMark.qml
+ProcessTable 1.0 ProcessTable.qml

@@ -1,0 +1,879 @@
+import QtQuick
+import QtQuick.Controls.Basic
+import QtQuick.Layouts
+import Quickshell
+import Quickshell.Wayland
+import "../components"
+
+ToolButton {
+    id: tile
+    required property var host
+    required property bool monitor
+    readonly property bool keepOpen: panel.visible
+    implicitHeight: host.edge
+    readonly property bool compact: host.vertical || host.screenWidth < 1000
+    readonly property bool light: host.background.hslLightness > 0.5
+    readonly property color tone: monitor ? (light ? "#096958" : "#80d9c3") : (light ? "#5d4ba8" : "#c2afff")
+    readonly property int activeRuns: ProjectHub.runs.filter(r => !r.ended).length
+    readonly property real memoryTotal: ProjectHub.projects.reduce((sum, p) => sum + (p.metric?.total || 0), 0)
+    readonly property bool partial: ProjectHub.projects.some(p => p.metric?.partial || p.metric?.approxMemory)
+    implicitWidth: compact ? host.edge : host.edge + 55
+    padding: 5
+    readonly property color muted: Qt.alpha(host.ink, 0.69)
+    Accessible.name: monitor ? "Recursos dos projetos" : "Comandos dos projetos"
+    contentItem: RowLayout {
+        spacing: 5
+        ProjectMark {
+            monitor: tile.monitor
+            tone: tile.tone
+            Layout.alignment: Qt.AlignCenter
+            Layout.preferredWidth: Math.min(29, tile.host.edge - 10)
+            Layout.preferredHeight: Layout.preferredWidth
+        }
+        ColumnLayout {
+            visible: !tile.compact
+            Layout.fillWidth: true
+            spacing: 0
+            Text {
+                text: tile.monitor ? "Memória" : "Comandos"
+                font.pixelSize: 10
+                color: tile.muted
+            }
+            Text {
+                text: tile.monitor ? (tile.partial ? "≈" : "") + tile.mem(tile.memoryTotal) : tile.activeRuns + " ativos"
+                font.pixelSize: 12
+                font.weight: Font.DemiBold
+                color: tile.host.ink
+            }
+        }
+    }
+    background: Rectangle {
+        radius: 10
+        color: Qt.tint(tile.host.background, Qt.alpha(tile.host.ink, tile.hovered ? 0.10 : 0.04))
+        border.color: tile.visualFocus ? tile.tone : Qt.alpha(tile.host.ink, 0.18)
+    }
+    onClicked: panel.visible = !panel.visible
+    function mem(n) {
+        return n >= 1073741824 ? (n / 1073741824).toFixed(1) + " GiB" : Math.round((n || 0) / 1048576) + " MiB";
+    }
+    function send(data) {
+        ProjectHub.error = "";
+        ProjectHub.send(Object.assign({
+            project: panel.key
+        }, data));
+    }
+    function edit(mode, value) {
+        ProjectHub.error = "";
+        panel.mode = mode;
+        if (mode === "command") {
+            const c = JSON.parse(value);
+            panel.original = c;
+            commandName.text = c.name || "";
+            commandArgs.text = JSON.stringify(c.argv || []);
+            commandCategory.text = c.category || "";
+            commandDescription.text = c.description || "";
+            inEnvironment.checked = !!c.environment;
+            needsConfirm.checked = c.confirm !== false;
+            editor.text = JSON.stringify({
+                cwd: c.cwd || ".",
+                env: c.env || {},
+                depends: c.depends || [],
+                ready: c.ready || null,
+                shell: c.shell || false,
+                capture: c.capture !== false,
+                policy: c.policy || (c.category === "compose" ? "shared" : "managed"),
+                timeout: c.timeout || 120,
+                icon: c.icon || "›"
+            }, null, 2);
+            advanced.checked = false;
+            commandName.forceActiveFocus();
+        } else if (mode === "configure") {
+            const p = JSON.parse(value);
+            projectName.text = p.name;
+            composeNames.text = p.compose.join(", ");
+            projectName.forceActiveFocus();
+        } else {
+            if (mode === "add" || mode === "discover") {
+                pathField.text = value;
+                pathField.forceActiveFocus();
+            } else {
+                editor.text = value;
+                editor.forceActiveFocus();
+            }
+        }
+    }
+    function confirm(label, request) {
+        panel.question = label;
+        panel.pending = request;
+        panel.mode = "confirm";
+    }
+    function start(command) {
+        const catalog = panel.project.commands;
+        const visited = new Set();
+        const sequence = [];
+        function collect(item) {
+            if (!item || visited.has(item.id))
+                return;
+            visited.add(item.id);
+            for (const id of item.depends || [])
+                collect(catalog.find(c => c.id === id));
+            sequence.push(item);
+        }
+        collect(command);
+        const data = {
+            op: "start",
+            id: command.id
+        };
+        if (sequence.some(c => c.confirm !== false)) {
+            data.confirmed = true;
+            confirm("Executar neste projeto?\n" + sequence.map(c => c.argv.join(" ")).join("\n"), data);
+        } else
+            send(data);
+    }
+    function save() {
+        try {
+            if (panel.mode === "add" || panel.mode === "discover")
+                send({
+                    op: panel.mode,
+                    path: pathField.text.trim()
+                });
+            else if (panel.mode === "configure")
+                send({
+                    op: "configure",
+                    name: projectName.text,
+                    compose: composeNames.text.split(",").map(n => n.trim()).filter(Boolean)
+                });
+            else if (panel.mode === "interval") {
+                const data = JSON.parse(editor.text);
+                if (!Number.isInteger(data.open) || !Number.isInteger(data.closed) || data.open < 2 || data.closed < data.open || data.closed > 600)
+                    throw Error("Use 2 a 600 segundos, com intervalo fechado maior ou igual ao aberto.");
+                host.savePreference("intervals", {
+                    open: data.open,
+                    closed: data.closed
+                });
+                ProjectHub.intervalSeconds = data.open;
+                ProjectHub.idleSeconds = data.closed;
+            } else {
+                const spec = Object.assign({}, panel.original, JSON.parse(editor.text), {
+                    name: commandName.text,
+                    description: commandDescription.text,
+                    category: commandCategory.text,
+                    argv: JSON.parse(commandArgs.text),
+                    environment: inEnvironment.checked,
+                    confirm: needsConfirm.checked
+                });
+                if (!spec.ready)
+                    delete spec.ready;
+                send({
+                    op: "save",
+                    command: spec
+                });
+            }
+            panel.mode = "";
+        } catch (e) {
+            ProjectHub.error = e.message;
+        }
+    }
+    function intervals() {
+        if (monitor && host) {
+            const value = host.preference("intervals", {
+                open: 4,
+                closed: 30
+            });
+            if (Number.isInteger(value?.open) && Number.isInteger(value?.closed) && value.open >= 2 && value.closed >= value.open && value.closed <= 600) {
+                ProjectHub.intervalSeconds = value.open;
+                ProjectHub.idleSeconds = value.closed;
+            }
+        }
+    }
+    Component.onCompleted: intervals()
+    component T: Label {
+        color: tile.host.ink
+        textFormat: Text.PlainText
+        wrapMode: Text.WrapAnywhere
+        Layout.fillWidth: true
+    }
+    component Field: TextField {
+        Layout.fillWidth: true
+        color: tile.host.ink
+        placeholderTextColor: tile.muted
+        background: Rectangle {
+            radius: 6
+            color: Qt.alpha(tile.host.ink, 0.045)
+            border.color: parent.activeFocus ? tile.host.accent : Qt.alpha(tile.host.ink, 0.2)
+        }
+    }
+    component B: Button {
+        id: b
+        property bool primary: false
+        padding: 8
+        contentItem: Text {
+            text: b.text
+            textFormat: Text.PlainText
+            font.weight: Font.Medium
+            color: b.primary ? tile.tone : tile.host.ink
+            elide: Text.ElideRight
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+        }
+        background: Rectangle {
+            radius: 6
+            color: Qt.alpha(b.primary ? tile.tone : tile.host.ink, b.hovered ? 0.13 : b.primary ? 0.095 : 0.04)
+            border.color: b.visualFocus ? tile.tone : Qt.alpha(b.primary ? tile.tone : tile.host.ink, 0.15)
+        }
+    }
+    PanelWindow {
+        id: panel
+        visible: false
+        readonly property var dock: tile.QsWindow.window
+        screen: dock?.screen ?? null
+        exclusionMode: ExclusionMode.Ignore
+        WlrLayershell.layer: WlrLayer.Overlay
+        WlrLayershell.namespace: "orla-project-panel"
+        WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
+        anchors.left: !tile.host.vertical || tile.host.leftEdge
+        anchors.right: tile.host.vertical && !tile.host.leftEdge
+        anchors.bottom: !tile.host.vertical
+        anchors.top: tile.host.vertical
+        readonly property point tileCenter: visible && dock ? tile.mapToItem(dock.contentItem, tile.width / 2, tile.height / 2) : Qt.point(0, 0)
+        margins.left: tile.host.vertical ? tile.host.extent : Math.max(0, Math.min(tile.host.screenWidth - width, (tile.host.screenWidth - (dock?.width ?? 0)) / 2 + tileCenter.x - width / 2))
+        margins.right: tile.host.vertical ? tile.host.extent : 0
+        margins.bottom: tile.host.vertical ? 0 : tile.host.extent
+        margins.top: tile.host.vertical ? Math.max(0, Math.min(tile.host.screenHeight - height, (tile.host.screenHeight - (dock?.height ?? 0)) / 2 + tileCenter.y - height / 2)) : 0
+        implicitWidth: Math.min(724, tile.host.screenWidth - 16)
+        implicitHeight: Math.min(!mode && !project ? Math.min(620, header.implicitHeight + overview.implicitHeight + 64 + (ProjectHub.error ? errorLabel.implicitHeight + 10 : 0)) : 620, tile.host.screenHeight - tile.host.extent - 16)
+        color: "transparent"
+        property string key: ""
+        property string mode: ""
+        property string sortBy: "total"
+        property string query: ""
+        property string runId: ""
+        property var lines: []
+        property string question: ""
+        property var pending: null
+        property var original: ({})
+        property bool counted: false
+        readonly property var project: ProjectHub.projects.find(p => p.id === key)
+        readonly property var metric: project?.metric || {}
+        readonly property var runs: ProjectHub.runs.filter(r => r.project === key)
+        function logPage(rid) {
+            const viewer = decodeURIComponent(Qt.resolvedUrl("log_terminal.py").toString().slice(7));
+            Quickshell.execDetached(["xdg-terminal-exec", "--", "python3", viewer, rid]);
+            runId = rid;
+            lines = [];
+            query = "";
+            mode = "logs";
+            tile.send({
+                op: "logs",
+                run: rid
+            });
+        }
+        onVisibleChanged: {
+            if (visible)
+                ProjectHub.panelOpened(panel);
+            if (counted !== visible) {
+                counted = visible;
+                ProjectHub.panels += visible ? 1 : -1;
+            }
+            if (!visible) {
+                mode = "";
+                query = "";
+                runId = "";
+            }
+        }
+        Component.onDestruction: if (counted)
+            ProjectHub.panels--
+        Connections {
+            target: ProjectHub
+            function onPanelOpened(window) {
+                if (panel.visible && window !== panel && window.screen === panel.screen)
+                    panel.visible = false;
+            }
+            function onLogResult(run, lines) {
+                if (panel.runId === run)
+                    panel.lines = lines;
+            }
+        }
+        Timer {
+            running: panel.visible && panel.mode === "logs"
+            repeat: true
+            interval: 1500
+            onTriggered: ProjectHub.send({
+                op: "logs",
+                project: panel.key,
+                run: panel.runId
+            })
+        }
+        Rectangle {
+            anchors.fill: parent
+            radius: 14
+            color: tile.host.background
+            border.color: Qt.alpha(tile.host.ink, 0.2)
+        }
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: 18
+            spacing: 10
+            RowLayout {
+                id: header
+                B {
+                    visible: !!panel.project || !!panel.mode
+                    text: "‹"
+                    Accessible.name: "Voltar"
+                    onClicked: {
+                        if (panel.mode)
+                            panel.mode = "";
+                        else
+                            panel.key = "";
+                        panel.query = "";
+                    }
+                }
+                ProjectMark {
+                    monitor: tile.monitor
+                    tone: tile.tone
+                    Layout.preferredWidth: 34
+                    Layout.preferredHeight: 34
+                }
+                T {
+                    text: panel.project?.name || (tile.monitor ? "Recursos dos projetos" : "Comandos dos projetos")
+                    font.pixelSize: 20
+                    font.weight: Font.DemiBold
+                }
+                RefreshButton {
+                    ink: tile.host.ink
+                    busy: ProjectHub.ticking
+                    onClicked: tile.send({
+                        op: "refresh",
+                        monitor: true,
+                        detail: true
+                    })
+                }
+                B {
+                    text: "×"
+                    Accessible.name: "Fechar"
+                    onClicked: panel.visible = false
+                }
+            }
+            T {
+                id: errorLabel
+                visible: !!ProjectHub.error
+                text: ProjectHub.error
+                color: tile.host.accent
+            }
+            TextField {
+                Layout.fillWidth: true
+                visible: panel.mode === "logs" || (!!panel.project && !panel.mode && !tile.monitor)
+                placeholderText: panel.mode === "logs" ? "Pesquisar nos logs" : "Pesquisar comandos"
+                text: panel.query
+                onTextEdited: panel.query = text
+            }
+            ScrollView {
+                id: scroll
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                contentWidth: availableWidth
+                clip: true
+                ColumnLayout {
+                    width: scroll.availableWidth
+                    spacing: 8
+                    ColumnLayout {
+                        id: overview
+                        spacing: 10
+                        visible: !panel.mode && !panel.project
+                        Layout.fillWidth: true
+                        RowLayout {
+                            id: summary
+                            visible: ProjectHub.projects.length > 0
+                            Layout.fillWidth: true
+                            readonly property var metrics: ProjectHub.projects.map(p => p.metric || {})
+                            Repeater {
+                                model: tile.monitor ? [[(tile.partial ? "≈" : "") + tile.mem(tile.memoryTotal), "RAM atribuída"], [(summary.metrics.some(m => m.cpuPartial) ? "≈" : "") + summary.metrics.reduce((v, m) => v + (m.totalCpu || 0), 0).toFixed(1) + "%", "CPU"], [summary.metrics.reduce((v, m) => v + (m.processes?.length || 0), 0), "Processos"], [summary.metrics.filter(m => m.processes?.length || m.containers?.some(c => c.state === "running")).length, "Projetos ativos"]] : [[ProjectHub.projects.length, "Projetos"], [tile.activeRuns, "Em execução"], [ProjectHub.projects.reduce((v, p) => v + p.commands.length, 0), "Comandos"]]
+                                delegate: ColumnLayout {
+                                    required property var modelData
+                                    spacing: 1
+                                    Layout.fillWidth: true
+                                    T {
+                                        text: modelData[0]
+                                        font.pixelSize: 18
+                                        font.weight: Font.DemiBold
+                                    }
+                                    T {
+                                        text: modelData[1]
+                                        font.pixelSize: 11
+                                        color: tile.muted
+                                    }
+                                }
+                            }
+                        }
+                        Rectangle {
+                            visible: ProjectHub.projects.length > 0
+                            Layout.fillWidth: true
+                            implicitHeight: 1
+                            color: Qt.alpha(tile.host.ink, 0.12)
+                        }
+                        ColumnLayout {
+                            visible: !ProjectHub.projects.length
+                            Layout.fillWidth: true
+                            Layout.topMargin: 10
+                            Layout.bottomMargin: 8
+                            spacing: 4
+                            T {
+                                text: tile.monitor ? "Qual projeto você quer acompanhar?" : "Escolha a pasta do seu projeto"
+                                font.pixelSize: 17
+                                font.weight: Font.DemiBold
+                            }
+                            T {
+                                text: tile.monitor ? "Adicione uma pasta para acompanhar CPU, memória e processos." : "A Orla procura scripts e tarefas que você pode iniciar por aqui."
+                                color: tile.muted
+                            }
+                        }
+                        Flow {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: childrenRect.height
+                            spacing: 6
+                            B {
+                                primary: true
+                                text: "Adicionar pasta"
+                                onClicked: tile.edit("add", "")
+                            }
+                            B {
+                                text: "Descobrir projetos"
+                                onClicked: tile.edit("discover", "")
+                            }
+                            B {
+                                visible: tile.monitor
+                                text: panel.sortBy === "total" ? "Ordenar por CPU" : "Ordenar por RAM"
+                                onClicked: panel.sortBy = panel.sortBy === "total" ? "totalCpu" : "total"
+                            }
+                            B {
+                                visible: tile.monitor
+                                text: "Intervalos"
+                                onClicked: tile.edit("interval", JSON.stringify({
+                                    open: ProjectHub.intervalSeconds,
+                                    closed: ProjectHub.idleSeconds
+                                }, null, 2))
+                            }
+                        }
+                        Repeater {
+                            model: panel.visible && !panel.project && !panel.mode ? [...new Set((ProjectHub.docker?.rows || []).filter(r => r.workingDir).map(r => r.project))].filter(n => !ProjectHub.projects.some(p => p.compose.includes(n))) : []
+                            delegate: B {
+                                required property string modelData
+                                text: "Importar Compose · " + modelData
+                                onClicked: tile.send({
+                                    op: "importDocker",
+                                    name: modelData
+                                })
+                            }
+                        }
+                        Repeater {
+                            model: (panel.visible && !panel.project && !panel.mode ? ProjectHub.projects : []).slice().sort((a, b) => (b.metric?.[panel.sortBy] || 0) - (a.metric?.[panel.sortBy] || 0))
+                            delegate: B {
+                                required property var modelData
+                                Layout.fillWidth: true
+                                readonly property var m: modelData.metric || {}
+                                readonly property int running: ProjectHub.runs.filter(r => r.project === modelData.id && !r.ended).length
+                                text: (m.processes?.length || m.containers?.some(c => c.state === "running") || running ? "●  " : "○  ") + modelData.name + "    " + (m.total !== undefined ? (m.partial || m.approxMemory ? "≈" : "") + tile.mem(m.total) + "   " + (m.cpuPartial ? "≈" : "") + m.totalCpu.toFixed(1) + "%   " + m.processes.length + " processos" : "") + (running ? "   ▶ " + running : "")
+                                contentItem: RowLayout {
+                                    spacing: 10
+                                    Rectangle {
+                                        implicitWidth: 8
+                                        implicitHeight: 8
+                                        radius: 4
+                                        color: running || m.processes?.length || m.containers?.some(c => c.state === "running") ? tile.tone : Qt.alpha(tile.host.ink, 0.22)
+                                    }
+                                    T {
+                                        text: modelData.name
+                                        font.weight: Font.DemiBold
+                                        elide: Text.ElideMiddle
+                                        wrapMode: Text.NoWrap
+                                    }
+                                    Text {
+                                        color: tile.muted
+                                        font.pixelSize: 12
+                                        text: tile.monitor ? (m.partial || m.approxMemory ? "≈" : "") + tile.mem(m.total) + "    " + (m.cpuPartial ? "≈" : "") + (m.totalCpu || 0).toFixed(1) + "%" : running + " em execução"
+                                    }
+                                    Text {
+                                        color: tile.muted
+                                        text: "›"
+                                        font.pixelSize: 18
+                                    }
+                                }
+                                onClicked: {
+                                    panel.key = modelData.id;
+                                    panel.query = "";
+                                }
+                                Rectangle {
+                                    visible: tile.monitor
+                                    anchors.left: parent.left
+                                    anchors.bottom: parent.bottom
+                                    width: parent.width * Math.min(1, (m.totalCpu || 0) / 100)
+                                    height: 2
+                                    color: tile.host.accent
+                                }
+                            }
+                        }
+                    }
+                    ColumnLayout {
+                        visible: !!panel.project && !panel.mode
+                        Layout.fillWidth: true
+                        T {
+                            text: panel.project?.path || ""
+                            color: tile.muted
+                        }
+                        T {
+                            visible: !!panel.project?.error
+                            text: panel.project?.error || ""
+                        }
+                        Flow {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: childrenRect.height
+                            spacing: 6
+                            B {
+                                text: "Abrir pasta"
+                                onClicked: Qt.openUrlExternally("file://" + panel.project.path.split("/").map(encodeURIComponent).join("/"))
+                            }
+                            B {
+                                text: "Configurar"
+                                onClicked: tile.edit("configure", JSON.stringify({
+                                    name: panel.project.name,
+                                    compose: panel.project.compose
+                                }, null, 2))
+                            }
+                            B {
+                                text: "Remover"
+                                onClicked: tile.confirm("Remover este projeto do registro?", {
+                                    op: "remove"
+                                })
+                            }
+                        }
+                        T {
+                            visible: tile.monitor
+                            text: "Memória local   " + tile.mem(panel.metric.local) + (panel.metric.approxMemory ? " (inclui RSS estimada)" : "") + "     Containers   " + tile.mem(panel.metric.containerRam) + (panel.metric.partial ? " (parcial)" : "")
+                        }
+                        Repeater {
+                            model: panel.visible && tile.monitor ? ["CPU", "RAM"] : []
+                            delegate: RowLayout {
+                                required property int index
+                                required property string modelData
+                                Layout.fillWidth: true
+                                T {
+                                    Layout.fillWidth: false
+                                    Layout.preferredWidth: 100
+                                    text: modelData + "   " + (index ? tile.mem(panel.metric.total) : (panel.metric.totalCpu || 0).toFixed(1) + "%")
+                                }
+                                Trend {
+                                    Layout.fillWidth: true
+                                    implicitHeight: 35
+                                    points: panel.metric.history || []
+                                    column: index
+                                    ink: tile.tone
+                                }
+                            }
+                        }
+                        T {
+                            visible: tile.monitor && !!panel.metric.cpuPartial
+                            color: tile.muted
+                            text: "CPU parcial até haver duas amostras locais e métricas do Docker."
+                        }
+                        ProcessTable {
+                            Layout.fillWidth: true
+                            visible: tile.monitor
+                            projectId: panel.key
+                            ink: tile.host.ink
+                            tone: tile.tone
+                            processes: panel.visible && tile.monitor ? panel.metric.processes || [] : []
+                        }
+                        T {
+                            visible: tile.monitor
+                            text: "Docker"
+                            font.bold: true
+                        }
+                        T {
+                            visible: tile.monitor && !panel.metric.containers?.length
+                            text: ProjectHub.docker?.online ? "Nenhum container associado." : "Docker indisponível ou bloqueado."
+                            color: tile.muted
+                        }
+                        Repeater {
+                            model: panel.visible && tile.monitor ? panel.metric.containers || [] : []
+                            delegate: T {
+                                required property var modelData
+                                text: modelData.name + "   " + (modelData.service || "") + "   " + modelData.state + "   " + (modelData.health || "") + "   " + (modelData.ram == null ? "RAM indisponível" : tile.mem(modelData.ram))
+                            }
+                        }
+                        T {
+                            visible: !!panel.metric.ports?.length && tile.monitor
+                            text: "Portas   " + (panel.metric.ports || []).join(", ")
+                        }
+                        Repeater {
+                            model: (panel.visible && !panel.mode ? panel.project?.commands || [] : []).filter(c => (c.name + " " + c.category).toLowerCase().includes(panel.query.toLowerCase())).sort((a, b) => Number(!!b.favorite) - Number(!!a.favorite) || String(a.category).localeCompare(String(b.category)))
+                            delegate: ColumnLayout {
+                                required property var modelData
+                                readonly property var cmd: modelData
+                                readonly property var latest: panel.runs.find(r => r.cmd === cmd.id)
+                                Layout.fillWidth: true
+                                spacing: 6
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.topMargin: 7
+                                    Layout.bottomMargin: 5
+                                    implicitHeight: 1
+                                    color: Qt.alpha(tile.host.ink, 0.16)
+                                }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    T {
+                                        text: (cmd.favorite ? "★  " : "") + cmd.name
+                                        font.pixelSize: 16
+                                        font.weight: Font.DemiBold
+                                    }
+                                    Text {
+                                        text: cmd.category || "Local"
+                                        color: tile.muted
+                                        textFormat: Text.PlainText
+                                    }
+                                    Text {
+                                        visible: !!latest
+                                        text: latest?.state || ""
+                                        color: tile.tone
+                                        font.weight: Font.Medium
+                                        textFormat: Text.PlainText
+                                    }
+                                }
+                                T {
+                                    visible: !!cmd.description
+                                    text: cmd.description || ""
+                                }
+                                T {
+                                    text: cmd.argv.join(" ")
+                                    font.family: "monospace"
+                                    font.pixelSize: 12
+                                    color: tile.muted
+                                }
+                                T {
+                                    font.pixelSize: 11
+                                    text: (cmd.source ? cmd.source + "  ·  " : "") + cmd.id
+                                    color: tile.muted
+                                }
+                                Flow {
+                                    visible: !tile.monitor
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: childrenRect.height
+                                    spacing: 5
+                                    B {
+                                        primary: true
+                                        text: "Executar"
+                                        onClicked: tile.start(cmd)
+                                    }
+                                    B {
+                                        visible: !!latest
+                                        text: "Logs"
+                                        onClicked: panel.logPage(latest.id)
+                                    }
+                                    B {
+                                        visible: !!latest && !latest.ended
+                                        text: "Parar"
+                                        onClicked: tile.confirm("Encerrar " + cmd.name + "?", {
+                                            op: "stop",
+                                            run: latest.id,
+                                            confirmed: true
+                                        })
+                                    }
+                                    B {
+                                        text: "Editar"
+                                        onClicked: tile.edit("command", JSON.stringify(cmd, null, 2))
+                                    }
+                                    B {
+                                        text: cmd.favorite ? "Desafixar" : "Favorito"
+                                        onClicked: tile.send({
+                                            op: "save",
+                                            command: Object.assign({}, cmd, {
+                                                favorite: !cmd.favorite
+                                            })
+                                        })
+                                    }
+                                    B {
+                                        visible: cmd.id.startsWith("custom:")
+                                        text: "Excluir"
+                                        onClicked: tile.confirm("Excluir comando?", {
+                                            op: "delete",
+                                            id: cmd.id
+                                        })
+                                    }
+                                }
+                            }
+                        }
+                        T {
+                            visible: !tile.monitor
+                            text: "Execuções e histórico"
+                            font.bold: true
+                        }
+                        Repeater {
+                            model: tile.monitor || !panel.visible || panel.mode ? [] : panel.runs
+                            delegate: ColumnLayout {
+                                required property var modelData
+                                readonly property var r: modelData
+                                Layout.fillWidth: true
+                                Rectangle {
+                                    Layout.fillWidth: true
+                                    Layout.topMargin: 5
+                                    implicitHeight: 1
+                                    color: Qt.alpha(tile.host.ink, 0.15)
+                                }
+                                T {
+                                    text: r.cmd + "   " + r.state + "   " + Math.max(0, Math.round((r.ended || Date.now() / 1000) - r.started)) + " s" + (r.pid ? "   PID " + r.pid : "   #" + r.id.slice(0, 8)) + (r.code == null ? "" : "   saída " + r.code)
+                                }
+                                RowLayout {
+                                    B {
+                                        text: "Logs"
+                                        onClicked: panel.logPage(r.id)
+                                    }
+                                    B {
+                                        visible: !r.ended
+                                        text: "Parar"
+                                        onClicked: tile.confirm("Encerrar esta execução? Serviços associados podem ser compartilhados.", {
+                                            op: "stop",
+                                            run: r.id,
+                                            confirmed: true
+                                        })
+                                    }
+                                    B {
+                                        visible: !r.ended
+                                        text: "Reiniciar"
+                                        onClicked: tile.confirm("Encerrar e iniciar novamente " + r.cmd + "?", {
+                                            op: "restart",
+                                            id: r.cmd,
+                                            confirmed: true
+                                        })
+                                    }
+                                    B {
+                                        visible: !!r.ended
+                                        text: "Executar novamente"
+                                        onClicked: tile.confirm("Reexecutar " + r.cmd + "?", {
+                                            op: "start",
+                                            id: r.cmd,
+                                            confirmed: true
+                                        })
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    ColumnLayout {
+                        visible: !!panel.mode && panel.mode !== "confirm" && panel.mode !== "logs"
+                        Layout.fillWidth: true
+                        T {
+                            text: ({
+                                    add: "Caminho do projeto",
+                                    discover: "Pasta que contém os projetos",
+                                    configure: "Nome e associações Compose",
+                                    interval: "Intervalos em segundos",
+                                    command: "Definição do comando"
+                                })[panel.mode] || ""
+                            font.bold: true
+                        }
+                        Field {
+                            id: projectName
+                            visible: panel.mode === "configure"
+                            placeholderText: "Nome do projeto"
+                        }
+                        Field {
+                            id: composeNames
+                            visible: panel.mode === "configure"
+                            placeholderText: "Projetos Compose, separados por vírgulas"
+                        }
+                        ColumnLayout {
+                            visible: panel.mode === "command"
+                            Layout.fillWidth: true
+                            Field {
+                                id: commandName
+                                placeholderText: "Nome do comando"
+                            }
+                            Field {
+                                id: commandDescription
+                                placeholderText: "Descrição (opcional)"
+                            }
+                            Field {
+                                id: commandCategory
+                                placeholderText: "Categoria"
+                            }
+                            T {
+                                text: "Executável e argumentos"
+                                font.weight: Font.DemiBold
+                            }
+                            Field {
+                                id: commandArgs
+                                readOnly: !!panel.original.source
+                                placeholderText: '["python", "-m", "http.server"]'
+                            }
+                            CheckBox {
+                                id: inEnvironment
+                                text: "Incluir ao iniciar o ambiente"
+                                palette.windowText: tile.host.ink
+                            }
+                            CheckBox {
+                                id: needsConfirm
+                                text: "Exigir confirmação"
+                                palette.windowText: tile.host.ink
+                            }
+                            CheckBox {
+                                id: advanced
+                                text: "Prontidão, dependências e ambiente"
+                                palette.windowText: tile.host.ink
+                            }
+                        }
+                        Field {
+                            id: pathField
+                            visible: panel.mode === "add" || panel.mode === "discover"
+                            placeholderText: "/caminho/para/projetos"
+                            selectByMouse: true
+                            onAccepted: if (text.trim())
+                                tile.save()
+                        }
+                        TextArea {
+                            id: editor
+                            Layout.fillWidth: true
+                            wrapMode: TextEdit.WrapAnywhere
+                            selectByMouse: true
+                            visible: panel.mode === "interval" || (panel.mode === "command" && advanced.checked)
+                            color: tile.host.ink
+                            placeholderText: panel.mode === "add" || panel.mode === "discover" ? "/caminho/para/projetos" : ""
+                            background: Rectangle {
+                                radius: 6
+                                color: Qt.alpha(tile.host.ink, 0.06)
+                            }
+                        }
+                        B {
+                            text: "Salvar"
+                            onClicked: tile.save()
+                        }
+                    }
+                    ColumnLayout {
+                        visible: panel.mode === "confirm"
+                        Layout.fillWidth: true
+                        T {
+                            text: panel.question
+                        }
+                        RowLayout {
+                            B {
+                                text: "Cancelar"
+                                onClicked: panel.mode = ""
+                            }
+                            B {
+                                text: "Confirmar"
+                                onClicked: {
+                                    tile.send(panel.pending);
+                                    panel.mode = "";
+                                }
+                            }
+                        }
+                    }
+                    T {
+                        visible: panel.mode === "logs"
+                        text: panel.lines.filter(l => l.toLowerCase().includes(panel.query.toLowerCase())).join("\n") || "Nenhuma linha disponível."
+                        font.family: "monospace"
+                    }
+                }
+            }
+        }
+    }
+}

@@ -81,9 +81,12 @@ def snapshot(detail):
         fields = [".Id", ".Name", '.State.Status', '.Config.Labels', '.NetworkSettings.Ports']
         fmt = "\t".join("{{json " + field + "}}" for field in fields)
         endpoint = browser_host()
+        fmt += "\t{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}"
         for line in docker("inspect", "--type", "container", "--format", fmt, *ids).splitlines():
-            cid, name, state, labels, bindings = map(json.loads, line.split("\t"))
-            rows.append(dict(id=cid, name=name.lstrip("/"), state=state,
+            metadata, health = line.rsplit("\t", 1)
+            cid, name, state, labels, bindings = map(json.loads, metadata.split("\t"))
+            rows.append(dict(workingDir=(labels or {}).get("com.docker.compose.project.working_dir") if endpoint == "localhost" else None,
+                             service=(labels or {}).get("com.docker.compose.service"), health=health, id=cid, name=name.lstrip("/"), state=state,
                              project=(labels or {}).get("com.docker.compose.project") or "Sem projeto Compose",
                              urls=ports(bindings, endpoint), cpu=None, ram=None))
     warnings = ""

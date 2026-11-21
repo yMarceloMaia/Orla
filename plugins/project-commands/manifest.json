@@ -1,0 +1,10 @@
+{
+  "apiVersion": 1,
+  "id": "orla.project-commands",
+  "name": "Comandos dos projetos",
+  "widget": "Widget.qml",
+  "service": "Service.qml",
+  "setting": "plugin.orla.project-commands.enabled",
+  "defaultEnabled": false,
+  "order": 61
+}
