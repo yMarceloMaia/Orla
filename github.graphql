@@ -1,0 +1,26 @@
+query($from: DateTime!, $to: DateTime!) {
+  viewer {
+    # GitHub node ID for the minha-organizacao organization.
+    excluded: contributionsCollection(from: $from, to: $to, organizationID: "ORG_NODE_ID") {
+      contributionCalendar { weeks { contributionDays { date contributionCount } } }
+    }
+    contributionsCollection(from: $from, to: $to) {
+      contributionCalendar {
+        totalContributions
+        weeks { contributionDays { date weekday contributionCount contributionLevel } }
+      }
+    }
+  }
+  reviews: search(query: "is:pr is:open -user:minha-organizacao review-requested:@me", type: ISSUE, first: 20) {
+    issueCount
+    nodes { ...pr }
+  }
+  authored: search(query: "is:pr is:open -user:minha-organizacao author:@me", type: ISSUE, first: 20) {
+    issueCount
+    nodes { ...pr }
+  }
+}
+fragment pr on PullRequest {
+  title url number headRefName baseRefName repository { nameWithOwner }
+  commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
+}

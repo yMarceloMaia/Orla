@@ -12,8 +12,14 @@ Rectangle {
     required property color surface
     required property color accent
     required property bool shown
-    readonly property var player: enabled ? Mpris.players.values.find(p => p.isPlaying) || null : null
-    visible: !!player
+    readonly property var player: {
+        if (!enabled) return null;
+        const players = Mpris.players.values;
+        return players.find(p => p.isPlaying)
+            || players.find(p => p.playbackState === MprisPlaybackState.Paused)
+            || null;
+    }
+    visible: enabled
     width: compact ? edge : edge + 203
     height: edge
     radius: Math.min(12, edge / 4)
@@ -56,7 +62,7 @@ Rectangle {
         anchors.verticalCenter: parent.verticalCenter
         Text {
             width: parent.width
-            text: tile.player?.trackTitle || tile.player?.identity || ""
+            text: tile.player?.trackTitle || tile.player?.identity || "Sem reprodução"
             textFormat: Text.PlainText
             elide: Text.ElideRight
             color: tile.ink
@@ -93,6 +99,7 @@ Rectangle {
 
     Row {
         id: controls
+        visible: !tile.compact || !!tile.player
         anchors.right: parent.right
         anchors.rightMargin: tile.compact ? 0 : 6
         anchors.verticalCenter: parent.verticalCenter

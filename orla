@@ -33,7 +33,7 @@ def dispatch(expr):
         raise RuntimeError("Hyprland recusou a operação")
 
 
-VISUAL_DEFAULTS = dict(mediaPlayer=True, glass=True, reduceMotion=False, launchAnimation=True, indicators=True, appearance="system")
+VISUAL_DEFAULTS = dict(islands=False, fileTray=True, usageCompact=False, githubCompact=False, usageWidget=False, githubWidget=False, mediaPlayer=True, glass=True, reduceMotion=False, launchAnimation=True, indicators=True, appearance="system")
 theme_path = Path(os.getenv("XDG_STATE_HOME", Path.home() / ".local/state")) / "omarchy/current/theme/colors.toml"
 visual_cache = {}
 visual_checked = -10.
@@ -375,7 +375,56 @@ def dropped_files(app_id, urls, launch):
     return True
 
 
+def github_activity():
+    from datetime import datetime, timezone
+
+    now = datetime.now(timezone.utc)
+    year = str(now.year)
+    cmd = ["gh", "api", "--hostname", "github.com", "graphql", "-f",
+           "query=" + (ROOT / "github.graphql").read_text(), "-f", "from=" + year + "-01-01T00:00:00Z", "-f", "to=" + now.isoformat()]
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=25, check=True)
+    data = json.loads(result.stdout)["data"]
+    cal = data["viewer"]["contributionsCollection"]["contributionCalendar"]
+    levels = ["NONE", "FIRST_QUARTILE", "SECOND_QUARTILE", "THIRD_QUARTILE", "FOURTH_QUARTILE"]
+    excluded = {day["date"]: day["contributionCount"]
+                for week in data["viewer"]["excluded"]["contributionCalendar"]["weeks"]
+                for day in week["contributionDays"]}
+    total = 0
+    weeks = []
+    for week in cal["weeks"]:
+        days = [-1] * 7
+        for day in week["contributionDays"]:
+            if day["date"].startswith(year):
+                count = max(0, day["contributionCount"] - excluded.get(day["date"], 0))
+                total += count
+                original = day["contributionCount"]
+                days[day["weekday"]] = max(1, round(levels.index(day["contributionLevel"]) * count / original)) if count else 0
+        weeks.append(days)
+    payload = dict(total=total, weeks=weeks)
+    for group in ("reviews", "authored"):
+        rows = []
+        for pr in filter(None, data[group]["nodes"]):
+            commits = pr["commits"]["nodes"]
+            rollup = commits[-1]["commit"]["statusCheckRollup"] if commits else None
+            rows.append(dict(title=pr["title"], url=pr["url"], repo=pr["repository"]["nameWithOwner"],
+                             head=pr["headRefName"], base=pr["baseRefName"],
+                             number=pr["number"], checks=rollup["state"] if rollup else "NONE"))
+        payload[group] = dict(count=data[group]["issueCount"], rows=rows)
+    return payload
+
+
 def main(action, *args):
+    if action == "usage":
+        os.execl(sys.executable, sys.executable, str(ROOT / "usage.py"))
+    if action == "github":
+        try:
+            payload = github_activity()
+        except FileNotFoundError:
+            payload = {"error": "Instale o GitHub CLI (gh) para conectar sua conta."}
+        except (subprocess.SubprocessError, ValueError, KeyError, TypeError):
+            payload = {"error": "Falha ao consultar o GitHub. Verifique a conexão e o login do gh."}
+        print(json.dumps(payload))
+        return
     if action in ("drop-check", "drop-open"):
         from gi.repository import GLib
         try:

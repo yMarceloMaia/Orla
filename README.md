@@ -35,6 +35,10 @@ A divisória entre os aplicativos e as pastas também ajusta o tamanho dos ícon
 
 Nas configurações, você pode exibir pastas em pilha, até três aplicativos fechados recentemente e uma miniatura separada para cada janela minimizada do workspace. Clique na pasta para explorar os arquivos por data ou nome e na miniatura para restaurar a janela. O menu de aplicativos compatíveis mostra até cinco documentos locais que eles registraram no histórico de recentes do desktop.
 
+### Bandeja de arquivos
+
+Arraste um ou mais arquivos locais para o ícone da bandeja. A contagem é compartilhada entre os monitores e workspaces. Arraste o próprio ícone para entregar o último arquivo adicionado, ou clique na bandeja e arraste um nome da lista para escolher outro. O botão **×** retira apenas a referência. Os arquivos originais permanecem onde estão. A bandeja é temporária e esvazia quando a dock reinicia.
+
 ## Comandos e recuperação
 
 | Comando | Função |

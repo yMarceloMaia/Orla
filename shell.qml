@@ -21,6 +21,43 @@ ShellRoot {
             clients: [],
             monitors: []
         })
+    ListModel { id: trayFiles }
+    property var planUsage: []
+    Process {
+        id: usageFetch
+        command: [root.helper, "usage"]
+        stdout: StdioCollector {
+            onStreamFinished: if (text.trim()) root.planUsage = JSON.parse(text)
+        }
+    }
+    Timer {
+        interval: 600000
+        running: root.cfg.usageWidget === true
+        triggeredOnStart: true
+        repeat: true
+        onTriggered: usageFetch.running = true
+    }
+    property var githubData: ({})
+    property string githubError: ""
+    Process {
+        id: githubFetch
+        command: [root.helper, "github"]
+        stdout: StdioCollector {
+            onStreamFinished: {
+                if (!text.trim()) return;
+                const result = JSON.parse(text);
+                root.githubError = result.error || "";
+                if (!result.error) root.githubData = result;
+            }
+        }
+    }
+    Timer {
+        interval: 900000
+        running: root.cfg.githubWidget === true
+        triggeredOnStart: true
+        repeat: true
+        onTriggered: githubFetch.running = true
+    }
     property var cfg: state.cfg
     readonly property bool light: cfg.appearance === "light" || (cfg.appearance !== "dark" && (state.visuals?.mode ? state.visuals.mode === "light" : Qt.styleHints.colorScheme === Qt.Light))
     readonly property bool motion: !cfg.reduceMotion && state.visuals?.animations !== false
@@ -88,7 +125,7 @@ ShellRoot {
                 endDrag();
                 menu.close();
             }
-            property bool shown: !fullscreen && (dragging !== "" || !root.cfg.auto || hover.hovered || (tipTarget?.windows?.length > 1 && !tipDelay.running) || fileDragGrace.running || fileHoverCount > 0 || menu.opened || stack.opened || resizeSize > 0 || linger.running)
+            property bool shown: !fullscreen && (dragging !== "" || !root.cfg.auto || hover.hovered || (tipTarget?.windows?.length > 1 && !tipDelay.running) || fileDragGrace.running || fileHoverCount > 0 || menu.opened || fileTray.receiving || fileTray.opened || usageTile.opened || githubTile.opened || stack.opened || resizeSize > 0 || linger.running)
             property int fileHoverCount: 0
             property int resizeSize: 0
             readonly property int iconSize: resizeSize || root.cfg.size
@@ -136,10 +173,14 @@ ShellRoot {
             property string selected: ""
             readonly property bool windowMenuVisible: menu.visible
             property var selectedWins: []
-            function openMenu(key) {
+            function openMenu(key, button) {
                 selected = key;
                 selectedWins = key ? wins.filter(c => root.key(c) === key) : [];
-                menu.popup();
+                tipTarget = null;
+                const center = button.mapToItem(panel.contentItem, button.width / 2, button.height / 2);
+                menuHost.anchorPoint = center;
+                menuHost.visible = true;
+                menu.open();
             }
             function toggleMenuWindow(window) {
                 root.cmd(window.parked ? "focus" : "minimize", window.address);
@@ -264,7 +305,7 @@ ShellRoot {
             WlrLayershell.keyboardFocus: WlrKeyboardFocus.None
             color: "transparent"
             WlrLayershell.namespace: "orla-dock"
-            BackgroundEffect.blurRegion: panel.shown && root.cfg.glass && root.state.visuals?.blur ? shelfRegion : null
+            BackgroundEffect.blurRegion: panel.shown && !root.cfg.islands && root.cfg.glass && root.state.visuals?.blur ? shelfRegion : null
             Region {
                 id: shelfRegion
                 item: shelf
@@ -295,7 +336,10 @@ ShellRoot {
                 visible: panel.shown
                 anchors.margins: 3
                 radius: 21
-                gradient: Gradient {
+                color: "transparent"
+                gradient: root.cfg.islands ? null : shelfGradient
+                Gradient {
+                    id: shelfGradient
                     GradientStop {
                         position: 0
                         color: Qt.alpha(Qt.tint(root.background, Qt.alpha(root.ink, 0.09)), root.cfg.glass ? 0.84 : 1)
@@ -305,8 +349,9 @@ ShellRoot {
                         color: Qt.alpha(root.background, root.cfg.glass ? 0.78 : 1)
                     }
                 }
-                border.color: root.outline
+                border.color: root.cfg.islands ? "transparent" : root.outline
                 Rectangle {
+                    visible: !root.cfg.islands
                     anchors.fill: parent
                     anchors.margins: 1
                     radius: 20
@@ -317,7 +362,7 @@ ShellRoot {
                     id: tiles
                     anchors.centerIn: parent
                     columns: panel.vertical ? 1 : children.length
-                    spacing: 5
+                    spacing: root.cfg.islands ? 8 : 5
                     Repeater {
                         property string keyList: JSON.stringify(panel.orderedKeys())
                         model: JSON.parse(keyList)
@@ -464,13 +509,13 @@ ShellRoot {
                             TapHandler {
                                 acceptedButtons: Qt.RightButton
                                 onTapped: {
-                                    panel.openMenu(tile.modelData);
+                                    panel.openMenu(tile.modelData, tile);
                                 }
                             }
                             Rectangle {
                                 anchors.bottom: parent.bottom
                                 anchors.horizontalCenter: parent.horizontalCenter
-                                width: 4
+                                width: root.cfg.islands ? Math.round(tile.width * 0.27) : 4
                                 height: 4
                                 radius: 2
                                 visible: root.cfg.indicators !== false && tile.windows.length > 0
@@ -486,6 +531,7 @@ ShellRoot {
                             width: panel.vertical ? parent.width * 0.66 : 2
                             height: panel.vertical ? 2 : parent.height * 0.66
                             radius: 1
+                            visible: !root.cfg.islands || grip.containsMouse || grip.pressed
                             color: grip.containsMouse ? "#e1e3ef" : "#80838f"
                         }
                         MouseArea {
@@ -585,6 +631,54 @@ ShellRoot {
                             onClicked: root.cmd("focus", modelData.address)
                         }
                     }
+                    FileTray {
+                        id: fileTray
+                        visible: root.cfg.fileTray !== false
+                        files: trayFiles
+                        edge: panel.iconSize
+                        vertical: panel.vertical
+                        leftEdge: root.cfg.position === "left"
+                        surface: root.background
+                        ink: root.ink
+                        accent: root.focusAccent
+                        onHoveredChanged: panel.tip(fileTray, hovered && !opened)
+                        onOpenedChanged: if (opened && panel.tipTarget === fileTray) panel.tipTarget = null
+                    }
+                    UsageTile {
+                        id: usageTile
+                        onShowAccountHintChanged: {
+                            if (showAccountHint) panel.tip(usageTile, true);
+                            else if (panel.tipTarget === usageTile) panel.tipTarget = null;
+                        }
+                        profile: root.cfg.usageCompact === true ? "Claude" : (root.cfg.usageCompact || "all")
+                        onSelectProfile: name => root.set("usageCompact", name)
+                        visible: root.cfg.usageWidget === true
+                        edge: panel.iconSize
+                        vertical: panel.vertical
+                        leftEdge: root.cfg.position === "left"
+                        accounts: root.planUsage
+                        busy: usageFetch.running
+                        ink: root.ink
+                        surface: root.background
+                        onRefresh: usageFetch.running = true
+                    }
+                    GithubTile {
+                        id: githubTile
+                        compact: root.cfg.githubCompact === true
+                        onToggleCompact: root.set("githubCompact", !compact)
+                        visible: root.cfg.githubWidget === true
+                        edge: panel.iconSize
+                        vertical: panel.vertical
+                        leftEdge: root.cfg.position === "left"
+                        maxPanelWidth: panel.screen.width - 16
+                        maxPanelHeight: panel.screen.height - panel.extent - 16
+                        data: root.githubData
+                        errorText: root.githubError
+                        busy: githubFetch.running
+                        surface: root.background
+                        ink: root.ink
+                        onRefresh: githubFetch.running = true
+                    }
                     MediaTile {
                         id: mediaTile
                         enabled: root.cfg.mediaPlayer !== false
@@ -614,7 +708,7 @@ ShellRoot {
                         height: width
                         Accessible.name: "Opções da dock"
                         onClicked: {
-                            panel.openMenu("");
+                            panel.openMenu("", optionsButton);
                         }
                     }
                 }
@@ -627,9 +721,28 @@ ShellRoot {
                 x: panel.vertical ? (root.cfg.position === "left" ? parent.width : -width) : (parent.width - width) / 2
                 y: panel.vertical ? (parent.height - height) / 2 : -height
             }
+            PanelWindow {
+                id: menuHost
+                screen: panel.screen
+                visible: false
+                color: "transparent"
+                anchors { top: true; bottom: true; left: true; right: true }
+                exclusionMode: ExclusionMode.Ignore
+                WlrLayershell.layer: WlrLayer.Overlay
+                WlrLayershell.namespace: "orla-menu"
+                WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
+                property point anchorPoint
+            }
             Menu {
                 id: menu
-                onClosed: panel.selectedWins = []
+                parent: menuHost.contentItem
+                x: panel.vertical ? (root.cfg.position === "left" ? panel.width : menuHost.width - panel.width - width)
+                                  : Math.max(0, Math.min(menuHost.width - width, (menuHost.width - panel.width) / 2 + menuHost.anchorPoint.x - width / 2))
+                y: panel.vertical ? Math.max(0, Math.min(menuHost.height - height, (menuHost.height - panel.height) / 2 + menuHost.anchorPoint.y - height / 2))
+                                  : menuHost.height - panel.height - height
+                modal: true
+                dim: false
+                onClosed: { menuHost.visible = false; panel.selectedWins = []; }
                 onAboutToShow: {
                     panel.documents = [];
                     if (panel.selected) {
@@ -645,7 +758,7 @@ ShellRoot {
                     color: root.surface
                     border.color: root.outline
                 }
-                popupType: Popup.Window
+                popupType: Popup.Item
                 DockOption {
                     lightMode: root.light
                     visible: panel.selected.length > 0 && !!root.appFor(panel.selected)
