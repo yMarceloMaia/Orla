@@ -14,17 +14,26 @@ Rectangle {
         anchors.centerIn: parent
         width: 26
         height: 26
-        visible: !view.hasContent
-        source: Quickshell.iconPath(DesktopEntries.heuristicLookup(thumb.client.class)?.icon || "application-x-executable", true)
+        visible: !capture.item?.hasContent
+        sourceSize: Qt.size(52, 52)
+        source: visible ? Quickshell.iconPath(DesktopEntries.heuristicLookup(thumb.client.class)?.icon || "application-x-executable", true) : ""
     }
-    ScreencopyView {
-        id: view
-        readonly property real ratio: sourceSize.height > 0 ? sourceSize.width / sourceSize.height : 1
-        anchors.centerIn: parent
-        width: Math.min(parent.width, parent.height * ratio)
-        height: Math.min(parent.height, parent.width / Math.max(0.01, ratio))
-        captureSource: thumb.capturing ? (Hyprland.toplevels.values.find(t => String(t.address).replace(/^0x/, "") === thumb.client.address.slice(2))?.wayland || null) : null
-        paintCursor: false
-        live: false
+    Loader {
+        id: capture
+        anchors.fill: parent
+        active: thumb.capturing
+        sourceComponent: Item {
+            readonly property bool hasContent: view.hasContent
+            ScreencopyView {
+                id: view
+                readonly property real ratio: sourceSize.height > 0 ? sourceSize.width / sourceSize.height : 1
+                anchors.centerIn: parent
+                width: Math.min(capture.width, capture.height * ratio)
+                height: Math.min(capture.height, capture.width / Math.max(0.01, ratio))
+                captureSource: (Hyprland.toplevels.values.find(t => String(t.address).replace(/^0x/, "") === thumb.client.address.slice(2))?.wayland || null)
+                paintCursor: false
+                live: false
+            }
+        }
     }
 }

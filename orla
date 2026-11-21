@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import json
+from contextlib import contextmanager
 import os
 import re
 import select
@@ -32,7 +33,7 @@ def dispatch(expr):
         raise RuntimeError("Hyprland recusou a operação")
 
 
-VISUAL_DEFAULTS = dict(glass=True, reduceMotion=False, launchAnimation=True, indicators=True, appearance="system")
+VISUAL_DEFAULTS = dict(mediaPlayer=True, glass=True, reduceMotion=False, launchAnimation=True, indicators=True, appearance="system")
 theme_path = Path(os.getenv("XDG_STATE_HOME", Path.home() / ".local/state")) / "omarchy/current/theme/colors.toml"
 visual_cache = {}
 visual_checked = -10.
@@ -165,14 +166,27 @@ def restore_split(w, dest):
     return False
 
 
+@contextmanager
+def without_slide(w):
+    # Match the native dock's grace period while Hyprland completes the move.
+    prop = 'prop="no_anim", ' + target(w)
+    dispatch(f'hl.dsp.window.set_prop({{{prop}, value="1"}})')
+    try:
+        yield
+    finally:
+        time.sleep(0.4)
+        dispatch(f'hl.dsp.window.set_prop({{{prop}, value="unset"}})')
+
+
 def restore(w, place=False):
     dest = origin(w)
     if dest not in {s["id"] for s in query("workspaces")}:
         dest = query("activeworkspace")["id"]
     if dest < 1:
         raise RuntimeError("Selecione um workspace normal para recuperar")
-    if not (place and restore_split(w, dest)):
-        move(w, int(dest))
+    with without_slide(w):
+        if not (place and restore_split(w, dest)):
+            move(w, int(dest))
     for value in w.get("tags", []):
         if value.startswith(TILE) and re.fullmatch(r"orla-tile-[-0-9_]+", value):
             tag(w, "-" + value)
@@ -193,8 +207,9 @@ def window_action(action, address):
                     tag(w, "-" + value)
             tag(w, "+" + TILE + "_".join(map(str, [*w["at"], *w["size"]])))
         tag(w, "+" + PREFIX + str(ws))
-        move(w, PARK)
-        dispatch(f'hl.dsp.focus({{workspace="{ws}"}})')
+        with without_slide(w):
+            move(w, PARK)
+            dispatch(f'hl.dsp.focus({{workspace="{ws}"}})')
     elif action == "focus":
         if parked(w) or native_parked(w):
             restore(w, place=True)
@@ -220,11 +235,15 @@ def confirm(message):
 
 
 def snapshot():
-    clients = query("clients")
-    for w in clients:
-        w["origin"] = origin(w) if parked(w) or native_parked(w) else w["workspace"]["id"]
-        w["parked"] = parked(w) or native_parked(w)
-    return dict(visuals=system_visuals(), clients=clients, monitors=query("monitors"), active=query("activewindow").get("address"), cfg=settings())
+    clients = []
+    for w in query("clients"):
+        stored = parked(w) or native_parked(w)
+        client = {k: w[k] for k in ("address", "initialClass", "class", "mapped", "hidden", "fullscreen", "title")}
+        client.update(workspace={"id": w["workspace"]["id"]}, parked=stored,
+                      origin=origin(w) if stored else w["workspace"]["id"])
+        clients.append(client)
+    monitors = [{k: m[k] for k in ("name", "activeWorkspace", "specialWorkspace")} for m in query("monitors")]
+    return dict(visuals=system_visuals(), clients=clients, monitors=monitors, active=query("activewindow").get("address"), cfg=settings())
 
 
 def watch():
@@ -365,6 +384,18 @@ def main(action, *args):
             ok = False
         raise SystemExit(0 if ok else 1)
     if action == "run-shell":
+        # The session can finish starting while the Omarchy shell opens its IPC.
+        for attempt in range(30):
+            try:
+                query("monitors")
+                main("native-off")
+                break
+            except (subprocess.CalledProcessError, ValueError):
+                if attempt == 29:
+                    raise
+                time.sleep(1)
+        # Limit retained arenas and release unused pages in the dock renderer.
+        os.environ.setdefault("MALLOC_CONF", "narenas:2,thp:never,dirty_decay_ms:1000,muzzy_decay_ms:1000,background_thread:true")
         os.execlp("quickshell", "quickshell", "-n", "-p", str(ROOT / "shell.qml"))
     if action == "documents":
         print(json.dumps(documents(args[0])))
@@ -427,8 +458,12 @@ def main(action, *args):
         if MARK.exists():
             run("omarchy","plugin","enable","omarchy.dock")
             MARK.unlink()
-    elif action in ("enable","disable"):
-        run("systemctl","--user",action,"--now",UNIT)
+    elif action == "enable":
+        # disable also removes the unit-file link when installed from a checkout.
+        run("systemctl", "--user", "enable", "--now", str(ROOT / UNIT))
+    elif action == "disable":
+        run("systemctl", "--user", "disable", "--now", UNIT)
+        run("systemctl", "--user", "link", str(ROOT / UNIT))
     else:
         raise SystemExit("orla enable | disable | recover | rescue")
 

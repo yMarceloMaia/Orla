@@ -212,6 +212,11 @@ FloatingWindow {
                         onClicked: page.edited("recentApps", checked)
                     }
                     Toggle {
+                        text: "Mostrar player durante a reprodução"
+                        checked: page.cfg.mediaPlayer !== false
+                        onClicked: page.edited("mediaPlayer", checked)
+                    }
+                    Toggle {
                         text: "Mostrar pastas como pilhas"
                         checked: page.cfg.stacks
                         onClicked: page.edited("stacks", checked)

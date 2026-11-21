@@ -394,13 +394,15 @@ ShellRoot {
                                 onCompatibleChanged: if (compatible) panel.tipTarget = null
                             }
                             property var preview: hovered && windows.length === 1 && windows[0].parked ? Hyprland.toplevels.values.find(t => String(t.address).replace(/^0x/, "") === windows[0].address.slice(2))?.wayland : null
-                            ScreencopyView {
+                            Loader {
                                 anchors.fill: parent
                                 anchors.margins: 5
-                                captureSource: tile.preview || null
-                                live: false
-                                paintCursor: false
-                                visible: !!tile.preview
+                                active: !!tile.preview
+                                sourceComponent: ScreencopyView {
+                                    captureSource: tile.preview || null
+                                    live: false
+                                    paintCursor: false
+                                }
                             }
                             Accessible.name: app?.name || modelData
                             onHoveredChanged: panel.tip(tile, hovered)
@@ -583,6 +585,17 @@ ShellRoot {
                             onClicked: root.cmd("focus", modelData.address)
                         }
                     }
+                    MediaTile {
+                        id: mediaTile
+                        enabled: root.cfg.mediaPlayer !== false
+                        edge: panel.iconSize
+                        compact: panel.vertical || panel.screen.width < 28 + 203 + edge + tiles.spacing
+                            + tiles.children.reduce((sum, item) => sum + (item !== mediaTile && item.visible && item.width > 0 ? item.width + tiles.spacing : 0), 0)
+                        surface: root.surface
+                        ink: root.ink
+                        accent: root.focusAccent
+                        shown: panel.shown
+                    }
                     ToolButton {
                         id: optionsButton
                         background: Item {}
@@ -616,6 +629,7 @@ ShellRoot {
             }
             Menu {
                 id: menu
+                onClosed: panel.selectedWins = []
                 onAboutToShow: {
                     panel.documents = [];
                     if (panel.selected) {
