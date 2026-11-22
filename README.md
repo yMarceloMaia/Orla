@@ -128,3 +128,7 @@ journalctl --user -u orla.service -b -n 50 --no-pager
 ```
 
 Se uma janela ficar fora de vista, comece por `orla recover`. Se o serviço falhar ao iniciar, confira o log e se a shell do Omarchy está disponível na sessão gráfica.
+
+## Licença
+
+A Orla é distribuída sob a [licença MIT](LICENSE).
