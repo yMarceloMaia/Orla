@@ -11,13 +11,14 @@ ToolButton {
     required property bool monitor
     readonly property bool keepOpen: panel.visible
     implicitHeight: host.edge
-    readonly property bool compact: host.vertical || host.screenWidth < 1000
+    readonly property int dockExtraWidth: host.screenWidth < 1000 ? 0 : 55
+    readonly property bool compact: host.vertical || host.compact === true || !dockExtraWidth
     readonly property bool light: host.background.hslLightness > 0.5
     readonly property color tone: monitor ? (light ? "#096958" : "#80d9c3") : (light ? "#5d4ba8" : "#c2afff")
     readonly property int activeRuns: ProjectHub.runs.filter(r => !r.ended).length
     readonly property real memoryTotal: ProjectHub.projects.reduce((sum, p) => sum + (p.metric?.total || 0), 0)
     readonly property bool partial: ProjectHub.projects.some(p => p.metric?.partial || p.metric?.approxMemory)
-    implicitWidth: compact ? host.edge : host.edge + 55
+    implicitWidth: compact ? host.edge : host.edge + dockExtraWidth
     padding: 5
     readonly property color muted: Qt.alpha(host.ink, 0.69)
     Accessible.name: monitor ? "Recursos dos projetos" : "Comandos dos projetos"
@@ -241,10 +242,35 @@ ToolButton {
         margins.bottom: tile.host.vertical ? 0 : tile.host.extent
         margins.top: tile.host.vertical ? Math.max(0, Math.min(tile.host.screenHeight - height, (tile.host.screenHeight - (dock?.height ?? 0)) / 2 + tileCenter.y - height / 2)) : 0
         implicitWidth: Math.min(724, tile.host.screenWidth - 16)
-        implicitHeight: Math.min(!mode && !project ? Math.min(620, header.implicitHeight + overview.implicitHeight + 64 + (ProjectHub.error ? errorLabel.implicitHeight + 10 : 0)) : 620, tile.host.screenHeight - tile.host.extent - 16)
+        implicitHeight: Math.min(!mode && !project && !portsTab ? Math.min(620, header.implicitHeight + overview.implicitHeight + (tile.monitor ? 64 : 110) + (ProjectHub.error ? errorLabel.implicitHeight + 10 : 0)) : 620, tile.host.screenHeight - tile.host.extent - 16)
         color: "transparent"
         property string key: ""
         property string mode: ""
+        property bool portsTab: false
+        readonly property bool showingSystemPorts: visible && !tile.monitor && portsTab && !project && !mode
+        readonly property var ports: (project ? metric.ports : ProjectHub.systemPorts) || []
+        property string portQuery: ""
+        readonly property var filteredPorts: {
+            const query = portQuery.trim().toLowerCase();
+            if (!query)
+                return ports;
+            const terms = query.split(/\s+/);
+            return ports.filter(port => {
+                const searchable = typeof port === "string" ? port : [port.protocol, port.address, port.port, ...port.owners.map(owner => owner.name + " " + owner.pid)].join(" ");
+                const text = searchable.toLowerCase();
+                return terms.every(term => text.includes(term));
+            });
+        }
+        onShowingSystemPortsChanged: if (showingSystemPorts)
+            ProjectHub.send({
+                op: "systemPorts"
+            })
+        onKeyChanged: {
+            portsTab = false;
+            portQuery = "";
+        }
+        onPortsTabChanged: if (scroll.contentItem)
+            scroll.contentItem.contentY = 0
         property string sortBy: "total"
         property string query: ""
         property string runId: ""
@@ -277,6 +303,8 @@ ToolButton {
             }
             if (!visible) {
                 mode = "";
+                portsTab = false;
+                portQuery = "";
                 query = "";
                 runId = "";
             }
@@ -293,6 +321,14 @@ ToolButton {
                 if (panel.runId === run)
                     panel.lines = lines;
             }
+        }
+        Timer {
+            running: panel.showingSystemPorts
+            repeat: true
+            interval: ProjectHub.intervalSeconds * 1000
+            onTriggered: ProjectHub.send({
+                op: "systemPorts"
+            })
         }
         Timer {
             running: panel.visible && panel.mode === "logs"
@@ -342,7 +378,9 @@ ToolButton {
                 RefreshButton {
                     ink: tile.host.ink
                     busy: ProjectHub.ticking
-                    onClicked: tile.send({
+                    onClicked: tile.send(panel.showingSystemPorts ? {
+                        op: "systemPorts"
+                    } : {
                         op: "refresh",
                         monitor: true,
                         detail: true
@@ -360,12 +398,56 @@ ToolButton {
                 text: ProjectHub.error
                 color: tile.host.accent
             }
+            RowLayout {
+                visible: !tile.monitor && !panel.mode
+                B {
+                    text: panel.project ? "Comandos" : "Projetos"
+                    checkable: true
+                    checked: !panel.portsTab
+                    primary: checked
+                    onClicked: panel.portsTab = false
+                }
+                B {
+                    text: panel.project ? "Portas" : "Portas do sistema"
+                    checkable: true
+                    checked: panel.portsTab
+                    primary: checked
+                    onClicked: {
+                        panel.portsTab = true;
+                        if (panel.project)
+                            ProjectHub.tick();
+                    }
+                }
+            }
             TextField {
                 Layout.fillWidth: true
-                visible: panel.mode === "logs" || (!!panel.project && !panel.mode && !tile.monitor)
+                visible: panel.mode === "logs" || (!!panel.project && !panel.mode && !tile.monitor && !panel.portsTab)
                 placeholderText: panel.mode === "logs" ? "Pesquisar nos logs" : "Pesquisar comandos"
                 text: panel.query
                 onTextEdited: panel.query = text
+            }
+            RowLayout {
+                visible: !tile.monitor && panel.portsTab && !panel.mode
+                Layout.fillWidth: true
+                Field {
+                    id: portFilter
+                    placeholderText: panel.project ? "Filtrar por porta ou protocolo" : "Filtrar por porta, endereço, protocolo, processo ou PID"
+                    Accessible.name: "Filtrar portas"
+                    text: panel.portQuery
+                    onTextEdited: {
+                        panel.portQuery = text;
+                        scroll.contentItem.contentY = 0;
+                    }
+                }
+                B {
+                    visible: !!panel.portQuery
+                    text: "×"
+                    Accessible.name: "Limpar filtro de portas"
+                    onClicked: {
+                        panel.portQuery = "";
+                        portFilter.forceActiveFocus();
+                    }
+                }
             }
             ScrollView {
                 id: scroll
@@ -379,7 +461,7 @@ ToolButton {
                     ColumnLayout {
                         id: overview
                         spacing: 10
-                        visible: !panel.mode && !panel.project
+                        visible: !panel.mode && !panel.project && !panel.portsTab
                         Layout.fillWidth: true
                         RowLayout {
                             id: summary
@@ -514,7 +596,73 @@ ToolButton {
                         }
                     }
                     ColumnLayout {
-                        visible: !!panel.project && !panel.mode
+                        visible: !panel.mode && !tile.monitor && panel.portsTab
+                        Layout.fillWidth: true
+                        spacing: 8
+                        T {
+                            text: panel.project ? "Portas abertas do projeto" : "Portas em uso no sistema"
+                            font.pixelSize: 15
+                            font.weight: Font.DemiBold
+                        }
+                        T {
+                            visible: !panel.ports.length
+                            text: panel.project ? (ProjectHub.ticking ? "Verificando portas…" : "Nenhuma porta aberta identificada para este projeto.") : (ProjectHub.systemPorts === null ? "Verificando portas…" : "Nenhuma porta TCP ou UDP identificada.")
+                            color: tile.muted
+                        }
+                        T {
+                            visible: panel.ports.length > 0 && !panel.filteredPorts.length
+                            text: "Nenhuma porta corresponde ao filtro."
+                            color: tile.muted
+                        }
+                        Repeater {
+                            model: panel.visible && parent.visible ? panel.filteredPorts : []
+                            delegate: Rectangle {
+                                id: port
+                                required property var modelData
+                                readonly property bool system: typeof modelData !== "string"
+                                readonly property bool local: !system && /^(tcp|udp)\//.test(modelData)
+                                Layout.fillWidth: true
+                                implicitHeight: portRow.implicitHeight + 20
+                                radius: 6
+                                color: Qt.alpha(tile.host.ink, 0.045)
+                                ColumnLayout {
+                                    id: portRow
+                                    anchors.fill: parent
+                                    anchors.margins: 10
+                                    spacing: 3
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        T {
+                                            text: {
+                                                if (!port.system)
+                                                    return port.local ? port.modelData.slice(4) : port.modelData;
+                                                const address = port.modelData.address;
+                                                return (address.includes(":") ? "[" + address + "]" : address) + ":" + port.modelData.port;
+                                            }
+                                            font.weight: Font.DemiBold
+                                        }
+                                        Text {
+                                            text: port.system ? (port.modelData.protocol === "tcp" ? "TCP · Em escuta" : "UDP · Vinculada") : port.local ? port.modelData.slice(0, 3).toUpperCase() + " local" : "Docker"
+                                            color: tile.muted
+                                        }
+                                    }
+                                    T {
+                                        visible: port.system
+                                        text: {
+                                            if (!port.system)
+                                                return "";
+                                            const owners = port.modelData.owners;
+                                            return owners.length ? owners.map(owner => owner.name + " (PID " + owner.pid + ")").join(" · ") : "Processo não identificado";
+                                        }
+                                        color: tile.muted
+                                        font.pixelSize: 12
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    ColumnLayout {
+                        visible: !!panel.project && !panel.mode && !panel.portsTab
                         Layout.fillWidth: true
                         T {
                             text: panel.project?.path || ""
@@ -531,6 +679,51 @@ ToolButton {
                             B {
                                 text: "Abrir pasta"
                                 onClicked: Qt.openUrlExternally("file://" + panel.project.path.split("/").map(encodeURIComponent).join("/"))
+                            }
+                            B {
+                                id: editorButton
+                                visible: tile.monitor
+                                text: "Abrir no editor ▾"
+                                onClicked: editorMenu.open()
+                                Menu {
+                                    id: editorMenu
+                                    popupType: Popup.Item
+                                    y: editorButton.height + 4
+                                    width: Math.max(editorButton.width, implicitWidth)
+                                    palette.windowText: tile.host.ink
+                                    palette.text: tile.host.ink
+                                    palette.highlightedText: tile.host.ink
+                                    palette.highlight: Qt.tint(tile.host.background, Qt.alpha(tile.tone, 0.14))
+                                    background: Rectangle {
+                                        radius: 8
+                                        color: tile.host.background
+                                        border.color: Qt.alpha(tile.host.ink, 0.22)
+                                    }
+                                    Repeater {
+                                        model: [
+                                            {
+                                                name: "Neovim",
+                                                id: "nvim"
+                                            },
+                                            {
+                                                name: "VS Code",
+                                                id: "code"
+                                            },
+                                            {
+                                                name: "Zed",
+                                                id: "zed"
+                                            }
+                                        ]
+                                        delegate: MenuItem {
+                                            required property var modelData
+                                            text: modelData.name
+                                            onTriggered: tile.send({
+                                                op: "openEditor",
+                                                editor: modelData.id
+                                            })
+                                        }
+                                    }
+                                }
                             }
                             B {
                                 text: "Configurar"

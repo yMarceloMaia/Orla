@@ -2,6 +2,7 @@
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -10,7 +11,7 @@ from pathlib import Path
 
 import registry
 import runner
-from metrics import Sampler
+from metrics import Sampler, system_ports
 
 
 class Backend:
@@ -25,6 +26,8 @@ class Backend:
     def request(self, msg):
         db = self.db
         op = msg.get("op", "tick")
+        if op == "systemPorts":
+            return {"systemPorts": system_ports()}
         key = msg.get("project", "")
         row = db.execute("SELECT * FROM projects WHERE id=?", (key,)).fetchone()
         if op == "discover":
@@ -71,6 +74,24 @@ class Backend:
         elif op not in ("tick", "refresh"):
             if not row:
                 raise ValueError("Projeto indisponível.")
+            if op == "openEditor":
+                editor = msg["editor"]
+                variants = {"nvim": ("nvim",), "code": ("code",), "zed": ("zed", "zeditor")}
+                if editor not in variants:
+                    raise ValueError("Editor desconhecido.")
+                folder = Path(row["path"])
+                if not folder.is_dir():
+                    raise ValueError("A pasta do projeto não está disponível.")
+                executable = next(filter(None, map(shutil.which, variants[editor])), None)
+                if executable is None:
+                    raise ValueError("Editor não encontrado no PATH: " + editor)
+                command = [executable, str(folder)]
+                if editor == "nvim":
+                    terminal = shutil.which("xdg-terminal-exec")
+                    if terminal is None:
+                        raise ValueError("xdg-terminal-exec não está disponível para abrir o Neovim.")
+                    command = [terminal, "--", *command]
+                return {"editorLaunch": {"command": command, "workingDirectory": str(folder)}}
             if op == "configure":
                 names = msg["compose"]
                 if not isinstance(names, list) or not all(

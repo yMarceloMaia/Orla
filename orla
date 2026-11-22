@@ -34,7 +34,7 @@ def dispatch(expr):
         raise RuntimeError("Hyprland recusou a operação")
 
 
-VISUAL_DEFAULTS = dict(extraClaudeProfile=None, githubExcludedOrg="", islands=False, fileTray=True, usageCompact=False, githubCompact=False, usageWidget=False, githubWidget=False, mediaPlayer=True, glass=True, reduceMotion=False, launchAnimation=True, indicators=True, appearance="system")
+VISUAL_DEFAULTS = dict(extraClaudeProfile=None, githubExcludedOrg="", islands=False, dockLayout=None, dockFinish="classic", fileTray=True, usageCompact=False, githubCompact=False, usageWidget=False, githubWidget=False, mediaPlayer=True, glass=True, reduceMotion=False, launchAnimation=True, indicators=True, appearance="system")
 theme_path = Path(os.getenv("XDG_STATE_HOME", Path.home() / ".local/state")) / "omarchy/current/theme/colors.toml"
 visual_cache = {}
 visual_checked = -10.

@@ -21,6 +21,7 @@ FloatingWindow {
     readonly property color muted: lightMode ? "#555965" : "#b9b9c4"
     readonly property color accent: lightMode ? Qt.darker(systemAccent, 1.25) : Qt.lighter(systemAccent, 1.45)
 
+    readonly property string dockLayout: cfg.dockLayout || (cfg.islands ? "islands" : "bar")
     property int section: 0
     readonly property var sections: ["Aparência", "Janelas", "Widgets", "Pastas"]
 
@@ -244,25 +245,42 @@ FloatingWindow {
                                 }
                             }
                         }
-                        Caption { text: "Estilo da dock" }
+                        Caption { text: "Layout da dock" }
                         RowLayout {
                             Layout.fillWidth: true
-                            Action {
-                                text: "Barra"
-                                Layout.fillWidth: true
-                                Layout.preferredWidth: 1
-                                checked: !page.cfg.islands
-                                onClicked: page.edited("islands", false)
+                            Repeater {
+                                model: [{id: "bar", label: "Barra"}, {id: "islands", label: "Ilhas"}, {id: "shelf", label: "Prateleira 3D"}]
+                                delegate: Action {
+                                    required property var modelData
+                                    Layout.fillWidth: true
+                                    Layout.preferredWidth: 1
+                                    text: modelData.label
+                                    checked: page.dockLayout === modelData.id
+                                    onClicked: page.edited("dockLayout", modelData.id)
+                                }
                             }
-                            Action {
-                                text: "Ilhas"
-                                Layout.fillWidth: true
-                                Layout.preferredWidth: 1
-                                checked: page.cfg.islands === true
-                                onClicked: page.edited("islands", true)
+                        }
+                        Caption {
+                            text: "Acabamento"
+                            visible: page.dockLayout !== "islands"
+                        }
+                        RowLayout {
+                            visible: page.dockLayout !== "islands"
+                            Layout.fillWidth: true
+                            Repeater {
+                                model: [{id: "classic", label: "Clássico"}, {id: "paper", label: "Papel"}, {id: "neon", label: "Neon"}]
+                                delegate: Action {
+                                    required property var modelData
+                                    Layout.fillWidth: true
+                                    Layout.preferredWidth: 1
+                                    text: modelData.label
+                                    checked: (page.cfg.dockFinish || "classic") === modelData.id
+                                    onClicked: page.edited("dockFinish", modelData.id)
+                                }
                             }
                         }
                         Toggle {
+                            visible: page.dockLayout !== "islands" && (page.cfg.dockFinish || "classic") === "classic"
                             text: "Fundo translúcido"
                             checked: page.cfg.glass
                             onClicked: page.edited("glass", checked)

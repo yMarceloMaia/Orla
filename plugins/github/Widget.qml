@@ -7,8 +7,10 @@ GithubTile {
     vertical: host.vertical
     leftEdge: host.leftEdge
     surface: host.background
-    compact: host.cfg.githubCompact === true
-    onToggleCompact: host.set("githubCompact", !compact)
+    readonly property bool manualCompact: host.cfg.githubCompact === true
+    readonly property int dockExtraWidth: manualCompact ? 0 : 105
+    compact: manualCompact || host.compact === true
+    onToggleCompact: host.set("githubCompact", !manualCompact)
     maxPanelWidth: host.screenWidth - 16
     maxPanelHeight: host.screenHeight - host.extent - 16
     data: host.service.githubData

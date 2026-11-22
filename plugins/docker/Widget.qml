@@ -20,7 +20,10 @@ ToolButton {
         const names = {running: "Em execução", exited: "Parado", created: "Criado", paused: "Pausado", restarting: "Reiniciando", dead: "Inativo", removing: "Removendo"}
         return names[value] || value || ""
     }
-    implicitWidth: host.vertical ? host.edge : host.edge + 40
+    readonly property int dockExtraWidth: 40
+    readonly property bool compact: host.vertical || host.compact === true
+    implicitWidth: compact ? host.edge : host.edge + dockExtraWidth
+    padding: compact ? 3 : 6
     implicitHeight: host.edge
     Accessible.name: "Docker Manager"
     onClicked: panel.visible = !panel.visible
@@ -39,7 +42,7 @@ ToolButton {
             Layout.preferredHeight: 24
         }
         Text {
-            visible: !tile.host.vertical
+            visible: !tile.compact
             color: tile.host.ink
             text: tile.svc?.online ? tile.activeCount : "–"
             font.bold: true

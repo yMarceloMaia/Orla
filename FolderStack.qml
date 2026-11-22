@@ -1,77 +1,200 @@
 import QtQuick
 import QtQuick.Layouts
-import QtQuick.Controls
+import QtQuick.Controls.Basic
 import Qt.labs.folderlistmodel
 import Quickshell
 
 Popup {
     id: stack
-    property bool lightMode: false
+
     required property string path
+    required property color surface
+    required property color ink
+    required property color accent
+    required property int maxWidth
+    required property int maxHeight
     property bool newest: true
-    popupType: Popup.Window
-    padding: 12
-    width: 344
-    height: Math.min(350, 100 + files.count * 36)
-    background: Rectangle {
-        radius: 12
-        color: stack.lightMode ? "#f8f8f9fc" : "#fa30323a"
-        border.color: "#696c78"
+    property bool reversed: true
+    property bool showHidden: false
+    readonly property color muted: Qt.alpha(ink, 0.70)
+    readonly property color outline: Qt.alpha(ink, 0.17)
+
+    function openEntry(entry) {
+        Quickshell.execDetached(["gio", "open", entry]);
+        close();
     }
+
+    popupType: Popup.Window
+    padding: 11
+    width: Math.min(368, maxWidth)
+    height: Math.min(maxHeight, 112 + (files.count ? Math.min(7, files.count) * 52 : 52))
+    background: Rectangle {
+        radius: 15
+        color: stack.surface
+        border.color: stack.outline
+    }
+
     FolderListModel {
         id: files
         folder: stack.visible ? "file://" + stack.path.split("/").map(encodeURIComponent).join("/") : ""
         sortField: stack.newest ? FolderListModel.Time : FolderListModel.Name
-        sortReversed: stack.newest
+        sortReversed: stack.reversed
+        showHidden: stack.showHidden
         showDotAndDotDot: false
     }
+
+    component StackLabel: Text {
+        color: stack.ink
+        textFormat: Text.PlainText
+        elide: Text.ElideRight
+        font.pixelSize: 13
+    }
+
+    component StackButton: ToolButton {
+        id: button
+        hoverEnabled: true
+        leftPadding: 8
+        rightPadding: 8
+        implicitHeight: 30
+        contentItem: StackLabel {
+            text: button.text
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+            font.weight: Font.Medium
+            color: button.checked ? stack.accent : stack.ink
+        }
+        background: Rectangle {
+            radius: 6
+            color: Qt.alpha(button.checked ? stack.accent : stack.ink, button.down ? 0.18 : button.hovered ? 0.12 : button.checked ? 0.09 : 0)
+            border.color: button.visualFocus ? stack.accent : "transparent"
+        }
+    }
+
     contentItem: ColumnLayout {
+        spacing: 8
         RowLayout {
-            Layout.fillWidth: true
-            Label {
-                Layout.fillWidth: true
-                text: stack.path.split("/").pop() || "/"
-                textFormat: Text.PlainText
-                color: stack.lightMode ? "#24252d" : "white"
-                elide: Text.ElideMiddle
+            spacing: 9
+            Image {
+                Layout.preferredWidth: 30
+                Layout.preferredHeight: 30
+                source: Quickshell.iconPath("folder", true)
+                sourceSize: Qt.size(48, 48)
+                fillMode: Image.PreserveAspectFit
             }
-            ToolButton {
-                text: stack.newest ? "Por data" : "Por nome"
-                onClicked: stack.newest = !stack.newest
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 1
+                StackLabel {
+                    Layout.fillWidth: true
+                    text: stack.path.split("/").filter(Boolean).pop() || "/"
+                    font.pixelSize: 15
+                    font.weight: Font.DemiBold
+                }
+                StackLabel {
+                    Layout.fillWidth: true
+                    text: files.count === 1 ? "1 item" : files.count + " itens"
+                    color: stack.muted
+                    font.pixelSize: 11
+                }
+            }
+            StackButton {
+                text: "Abrir pasta ↗"
+                onClicked: stack.openEntry(stack.path)
+            }
+        }
+        Rectangle {
+            Layout.fillWidth: true
+            implicitHeight: toolbar.implicitHeight + 6
+            radius: 8
+            color: Qt.alpha(stack.ink, 0.055)
+            RowLayout {
+                id: toolbar
+                anchors.fill: parent
+                anchors.margins: 3
+                spacing: 4
+                StackButton {
+                    text: stack.newest ? "Data de modificação" : "Nome"
+                    Accessible.name: "Ordenar por " + (stack.newest ? "nome" : "data de modificação")
+                    onClicked: {
+                        stack.newest = !stack.newest;
+                        stack.reversed = stack.newest;
+                    }
+                }
+                Item {
+                    Layout.fillWidth: true
+                }
+                StackButton {
+                    text: stack.reversed ? "↓" : "↑"
+                    Accessible.name: stack.reversed ? "Mudar para ordem crescente" : "Mudar para ordem decrescente"
+                    onClicked: stack.reversed = !stack.reversed
+                }
+                StackButton {
+                    text: "Ocultos"
+                    checkable: true
+                    checked: stack.showHidden
+                    Accessible.name: "Mostrar arquivos ocultos"
+                    onClicked: stack.showHidden = checked
+                }
             }
         }
         ListView {
+            id: list
             Layout.fillHeight: true
             Layout.fillWidth: true
             clip: true
+            spacing: 4
             model: files
             ScrollBar.vertical: ScrollBar {}
-            delegate: DockOption {
-                lightMode: stack.lightMode
+            delegate: ItemDelegate {
+                id: entry
                 required property string fileName
                 required property url fileUrl
                 required property bool fileIsDir
+                required property date fileModified
+                required property string fileSuffix
                 width: ListView.view.width
-                text: (fileIsDir ? "▸  " : "") + fileName
-                onTriggered: {
-                    Quickshell.execDetached(["gio", "open", fileUrl.toString()]);
-                    stack.close();
+                height: 48
+                leftPadding: 9
+                rightPadding: 12
+                hoverEnabled: true
+                Accessible.name: fileName
+                onClicked: stack.openEntry(fileUrl.toString())
+                background: Rectangle {
+                    radius: 7
+                    color: Qt.alpha(stack.ink, entry.down ? 0.15 : entry.hovered ? 0.11 : 0.046)
+                    border.color: entry.visualFocus ? stack.accent : "transparent"
+                }
+                contentItem: RowLayout {
+                    spacing: 9
+                    Image {
+                        Layout.preferredWidth: 22
+                        Layout.preferredHeight: 22
+                        sourceSize: Qt.size(36, 36)
+                        source: Quickshell.iconPath(entry.fileIsDir ? "folder" : "text-x-generic", true)
+                        fillMode: Image.PreserveAspectFit
+                    }
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 2
+                        StackLabel {
+                            Layout.fillWidth: true
+                            text: entry.fileName
+                            font.weight: Font.Medium
+                        }
+                        StackLabel {
+                            Layout.fillWidth: true
+                            text: (entry.fileIsDir ? "Pasta" : entry.fileSuffix ? entry.fileSuffix.toUpperCase() : "Arquivo") + " · " + Qt.formatDateTime(entry.fileModified, "dd/MM/yyyy · HH:mm")
+                            color: stack.muted
+                            font.pixelSize: 11
+                        }
+                    }
                 }
             }
-            Label {
+            StackLabel {
                 anchors.centerIn: parent
                 visible: files.status === FolderListModel.Ready && !files.count
                 text: "Pasta vazia"
-                color: stack.lightMode ? "#595b66" : "#c2c4cd"
-            }
-        }
-        DockOption {
-            lightMode: stack.lightMode
-            Layout.fillWidth: true
-            text: "Abrir pasta"
-            onTriggered: {
-                Quickshell.execDetached(["gio", "open", stack.path]);
-                stack.close();
+                color: stack.muted
             }
         }
     }

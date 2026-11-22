@@ -1,7 +1,9 @@
 """Sample only this user's host processes; account container usage separately."""
 
+import ipaddress
 import os
 import re
+import sys
 import time
 from collections import deque
 from pathlib import Path
@@ -22,19 +24,72 @@ def fields(path):
     }
 
 
-def listeners():
-    sockets = {}
+def listening_sockets():
     for family in ("tcp", "tcp6", "udp", "udp6"):
+        protocol = family.rstrip("6")
         try:
-            for line in Path("/proc/net", family).read_text().splitlines()[1:]:
-                parts = line.split()
-                if parts[3] == ("0A" if family.startswith("tcp") else "07"):
-                    sockets[parts[9]] = (
-                        family.rstrip("6") + "/" + str(int(parts[1].split(":")[1], 16))
-                    )
+            lines = Path("/proc/net", family).read_text().splitlines()[1:]
         except OSError:
-            pass
-    return sockets
+            continue
+        for line in lines:
+            parts = line.split()
+            if parts[3] == ("0A" if protocol == "tcp" else "07"):
+                host, port = parts[1].split(":")
+                yield parts[9], protocol, host, int(port, 16)
+
+
+def listeners():
+    return {
+        inode: f"{protocol}/{port}"
+        for inode, protocol, _, port in listening_sockets()
+    }
+
+
+def system_ports():
+    sockets = {}
+    for inode, protocol, host, port in listening_sockets():
+        # The kernel prints each 32-bit address word in native byte order.
+        raw = b"".join(
+            int(host[i : i + 8], 16).to_bytes(4, sys.byteorder)
+            for i in range(0, len(host), 8)
+        )
+        sockets[inode] = {
+            "address": str(ipaddress.ip_address(raw)),
+            "protocol": protocol,
+            "port": port,
+            "owners": [],
+        }
+    if not sockets:
+        return []
+
+    for process in Path("/proc").iterdir():
+        if not process.name.isdecimal():
+            continue
+        try:
+            owned = set()
+            for fd in (process / "fd").iterdir():
+                try:
+                    target = os.readlink(fd)
+                except OSError:
+                    continue
+                if target.startswith("socket:[") and target[8:-1] in sockets:
+                    owned.add(target[8:-1])
+            if owned:
+                owner = {
+                    "pid": int(process.name),
+                    "name": (process / "comm").read_text(errors="replace").strip(),
+                }
+                for inode in owned:
+                    sockets[inode]["owners"].append(owner)
+        except OSError:
+            continue
+
+    for entry in sockets.values():
+        entry["owners"].sort(key=lambda owner: owner["pid"])
+    return sorted(
+        sockets.values(),
+        key=lambda entry: (entry["port"], entry["protocol"], entry["address"]),
+    )
 
 
 class Sampler:

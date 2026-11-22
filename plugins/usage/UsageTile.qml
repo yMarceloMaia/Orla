@@ -6,8 +6,15 @@ import QtQuick.Layouts
 ToolButton {
     id: tile
     required property string profile
+    required property string summaryPeriod
+    signal selectSummaryPeriod(string period)
+    readonly property string displayedPeriod: summaryPeriod === "5 horas" ? "5 horas" : "Semanal"
     readonly property int accountIndex: names.indexOf(profile)
     readonly property bool compact: accountIndex >= 0
+    property bool condensed: false
+    property int preferredEdge: edge
+    readonly property int dockExtraWidth: compact ? 0 : Math.max(0, preferredSummaryWidth - preferredEdge)
+    readonly property int preferredSummaryWidth: names.length * 62 + 10
     signal selectProfile(string name)
     TapHandler {
         acceptedButtons: Qt.RightButton
@@ -29,14 +36,14 @@ ToolButton {
     function tint(index) {
         return ["#e49a76", "#deb66d", "#79aea7"][paletteIndex(index)];
     }
-    function weekly(index) {
-        return accounts[index]?.windows.find(w => w.label === "Semanal");
+    function quotaFor(index, period) {
+        return accounts[index]?.windows.find(w => w.label === period);
     }
-    width: vertical || compact ? edge : names.length * 62 + 10
+    width: vertical || compact || condensed ? edge : preferredSummaryWidth
     height: edge
     padding: 5
     readonly property bool showAccountHint: visible && compact && hovered && !details.visible
-    Accessible.name: compact ? names[accountIndex] + " · uso semanal" : "Uso dos planos: " + names.join(", ")
+    Accessible.name: compact ? names[accountIndex] + " · uso semanal" : "Uso dos planos · " + displayedPeriod + " · " + names.join(", ")
     onClicked: details.open()
     background: Rectangle {
         radius: 10
@@ -54,7 +61,7 @@ ToolButton {
             id: dial
             visible: tile.compact
             anchors.fill: parent
-            readonly property var quota: tile.weekly(tile.accountIndex)
+            readonly property var quota: tile.quotaFor(tile.accountIndex, "Semanal")
             property double now: Date.now()
             readonly property int hours: quota?.reset ? Math.max(0, Math.ceil((quota.reset * 1000 - now) / 3600000)) : 0
             Timer { running: dial.visible; repeat: true; triggeredOnStart: true; interval: 60000; onTriggered: dial.now = Date.now() }
@@ -98,7 +105,7 @@ ToolButton {
             }
         }
         Row {
-            visible: !tile.vertical && !tile.compact
+            visible: !tile.vertical && !tile.compact && !tile.condensed
             anchors.centerIn: parent
             spacing: 6
             Repeater {
@@ -107,20 +114,21 @@ ToolButton {
                     id: summary
                     required property int index
                     required property string modelData
+                    readonly property var quota: tile.quotaFor(index, tile.displayedPeriod)
                     width: 56
                     spacing: 1
                     Text { text: parent.modelData; textFormat: Text.PlainText; width: parent.width; elide: Text.ElideRight; color: tile.ink; font.pixelSize: 10 }
-                    Text { text: tile.weekly(parent.index) ? Math.round(tile.weekly(parent.index).used) + "%" : "—"; color: tile.ink; font.pixelSize: tile.edge < 40 ? 11 : 14; font.bold: true }
+                    Text { text: summary.quota ? Math.round(summary.quota.used) + "%" : "—"; color: tile.ink; font.pixelSize: tile.edge < 40 ? 11 : 14; font.bold: true }
                     Rectangle {
                         width: parent.width; height: 3; radius: 1.5
                         color: Qt.alpha(tile.ink, 0.16)
-                        Rectangle { width: parent.width * (tile.weekly(summary.index)?.used || 0) / 100; height: parent.height; radius: parent.radius; color: tile.tint(summary.index) }
+                        Rectangle { width: parent.width * (summary.quota?.used || 0) / 100; height: parent.height; radius: parent.radius; color: tile.tint(summary.index) }
                     }
                 }
             }
         }
         Column {
-            visible: tile.vertical && !tile.compact
+            visible: (tile.vertical || tile.condensed) && !tile.compact
             anchors.centerIn: parent
             spacing: 4
             Repeater {
@@ -129,7 +137,7 @@ ToolButton {
                     required property int index
                     width: tile.edge * 0.64; height: 4; radius: 2
                     color: Qt.alpha(tile.ink, 0.18)
-                    Rectangle { width: parent.width * (tile.weekly(parent.index)?.used || 0) / 100; height: parent.height; color: tile.tint(parent.index); radius: 2 }
+                    Rectangle { width: parent.width * (tile.quotaFor(parent.index, tile.displayedPeriod)?.used || 0) / 100; height: parent.height; color: tile.tint(parent.index); radius: 2 }
                 }
             }
         }
@@ -151,6 +159,36 @@ ToolButton {
             RowLayout {
                 Label { Layout.fillWidth: true; text: "Uso dos planos"; font.bold: true; font.pixelSize: 18; color: tile.ink }
                 RefreshButton { busy: tile.busy; ink: tile.ink; onClicked: tile.refresh() }
+            }
+            RowLayout {
+                visible: !tile.compact
+                spacing: 6
+                Label {
+                    Layout.fillWidth: true
+                    text: "Resumo na dock"
+                    color: Qt.alpha(tile.ink, 0.75)
+                    font.pixelSize: 12
+                }
+                Repeater {
+                    model: ["Semanal", "5 horas"]
+                    delegate: ToolButton {
+                        id: periodButton
+                        required property string modelData
+                        text: modelData
+                        checkable: true
+                        checked: tile.displayedPeriod === modelData
+                        onClicked: {
+                            checked = Qt.binding(() => tile.displayedPeriod === modelData);
+                            tile.selectSummaryPeriod(modelData);
+                        }
+                        palette.buttonText: tile.ink
+                        background: Rectangle {
+                            radius: 6
+                            color: Qt.alpha(tile.ink, periodButton.checked ? 0.15 : periodButton.hovered ? 0.10 : 0.045)
+                            border.color: Qt.alpha(tile.ink, periodButton.visualFocus ? 0.75 : 0.16)
+                        }
+                    }
+                }
             }
             Repeater {
                 model: tile.names

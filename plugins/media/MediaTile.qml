@@ -8,12 +8,13 @@ Rectangle {
     id: tile
     required property int edge
     required property bool compact
+    property bool iconOnly: false
     required property color ink
     required property color surface
     required property color accent
     required property bool shown
     readonly property var player: {
-        if (!enabled) return null;
+        if (!enabled || iconOnly) return null;
         const players = Mpris.players.values;
         return players.find(p => p.isPlaying)
             || players.find(p => p.playbackState === MprisPlaybackState.Paused)
@@ -99,7 +100,7 @@ Rectangle {
 
     Row {
         id: controls
-        visible: !tile.compact || !!tile.player
+        visible: !tile.iconOnly && (!tile.compact || !!tile.player)
         anchors.right: parent.right
         anchors.rightMargin: tile.compact ? 0 : 6
         anchors.verticalCenter: parent.verticalCenter

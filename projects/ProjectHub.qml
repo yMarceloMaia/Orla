@@ -1,5 +1,6 @@
 pragma Singleton
 import QtQuick
+import Quickshell
 import Quickshell.Io
 
 Item {
@@ -12,6 +13,7 @@ Item {
     property var docker: null
     property var projects: []
     property var runs: []
+    property var systemPorts: null
     property string error: ""
     property bool ticking: false
     signal panelOpened(var window)
@@ -75,6 +77,10 @@ Item {
                     hub.projects = result.projects;
                     hub.runs = result.runs;
                 }
+                if (result.systemPorts)
+                    hub.systemPorts = result.systemPorts;
+                if (result.editorLaunch)
+                    Quickshell.execDetached(result.editorLaunch);
                 if (result.logs)
                     hub.logResult(result.run, result.logs);
             }
@@ -100,6 +106,7 @@ Item {
             worker.running = false;
             projects = [];
             runs = [];
+            systemPorts = null;
         }
     }
     onPanelsChanged: tick()
