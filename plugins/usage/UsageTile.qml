@@ -8,7 +8,7 @@ ToolButton {
     required property string profile
     required property string summaryPeriod
     signal selectSummaryPeriod(string period)
-    readonly property string displayedPeriod: summaryPeriod === "5 horas" ? "5 horas" : "Semanal"
+    readonly property string displayedPeriod: (summaryPeriod === "5 hours" || summaryPeriod === "5 horas") ? "5 hours" : "Weekly"
     readonly property int accountIndex: names.indexOf(profile)
     readonly property bool compact: accountIndex >= 0
     property bool condensed: false
@@ -43,7 +43,7 @@ ToolButton {
     height: edge
     padding: 5
     readonly property bool showAccountHint: visible && compact && hovered && !details.visible
-    Accessible.name: compact ? names[accountIndex] + " · uso semanal" : "Uso dos planos · " + displayedPeriod + " · " + names.join(", ")
+    Accessible.name: compact ? names[accountIndex] + " · weekly usage" : "Plan usage · " + displayedPeriod + " · " + names.join(", ")
     onClicked: details.open()
     background: Rectangle {
         radius: 10
@@ -61,7 +61,7 @@ ToolButton {
             id: dial
             visible: tile.compact
             anchors.fill: parent
-            readonly property var quota: tile.quotaFor(tile.accountIndex, "Semanal")
+            readonly property var quota: tile.quotaFor(tile.accountIndex, "Weekly")
             property double now: Date.now()
             readonly property int hours: quota?.reset ? Math.max(0, Math.ceil((quota.reset * 1000 - now) / 3600000)) : 0
             Timer { running: dial.visible; repeat: true; triggeredOnStart: true; interval: 60000; onTriggered: dial.now = Date.now() }
@@ -157,7 +157,7 @@ ToolButton {
             id: body
             spacing: 9
             RowLayout {
-                Label { Layout.fillWidth: true; text: "Uso dos planos"; font.bold: true; font.pixelSize: 18; color: tile.ink }
+                Label { Layout.fillWidth: true; text: "Plan usage"; font.bold: true; font.pixelSize: 18; color: tile.ink }
                 RefreshButton { busy: tile.busy; ink: tile.ink; onClicked: tile.refresh() }
             }
             RowLayout {
@@ -165,12 +165,12 @@ ToolButton {
                 spacing: 6
                 Label {
                     Layout.fillWidth: true
-                    text: "Resumo na dock"
+                    text: "Dock summary"
                     color: Qt.alpha(tile.ink, 0.75)
                     font.pixelSize: 12
                 }
                 Repeater {
-                    model: ["Semanal", "5 horas"]
+                    model: ["Weekly", "5 hours"]
                     delegate: ToolButton {
                         id: periodButton
                         required property string modelData
@@ -201,7 +201,7 @@ ToolButton {
                     Label { text: profile.modelData; textFormat: Text.PlainText; font.bold: true; color: tile.ink }
                     Label {
                         visible: !!text
-                        text: tile.accounts[profile.index]?.error || (!tile.accounts.length ? "Consultando…" : "")
+                        text: tile.accounts[profile.index]?.error || (!tile.accounts.length ? "Loading…" : "")
                         color: Qt.alpha(tile.ink, 0.75)
                     }
                     Repeater {
@@ -221,7 +221,7 @@ ToolButton {
                                 Layout.preferredWidth: 99; horizontalAlignment: Text.AlignRight
                                 text: period.modelData.reset ? "↻ " + Qt.formatDateTime(new Date(period.modelData.reset * 1000), "dd/MM HH:mm") : "—"
                                 font.pixelSize: 11; color: Qt.alpha(tile.ink, 0.76)
-                                Accessible.name: "Renovação: " + text
+                                Accessible.name: "Resets: " + text
                             }
                         }
                     }

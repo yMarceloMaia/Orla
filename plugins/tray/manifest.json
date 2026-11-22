@@ -1,7 +1,7 @@
 {
   "apiVersion": 1,
   "id": "orla.tray",
-  "name": "Bandeja de arquivos",
+  "name": "File Tray",
   "widget": "Widget.qml",
   "setting": "fileTray",
   "defaultEnabled": true,

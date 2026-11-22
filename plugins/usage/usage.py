@@ -37,16 +37,16 @@ def claude(directory):
         })
         response = connection.getresponse()
         if response.status == 429:
-            raise ProfileError("Limite de consultas. Tente mais tarde.")
+            raise ProfileError("Rate limit reached. Try again later.")
         if response.status in (401, 403):
-            raise ProfileError("Verifique o login deste perfil.")
+            raise ProfileError("Check that this profile is signed in.")
         if response.status != 200:
             raise OSError("Service unavailable")
         data = json.load(response)
     finally:
         connection.close()
     return [window(label, data[key].get("utilization"), data[key].get("resets_at"))
-            for key, label in (("five_hour", "5 horas"), ("seven_day", "Semanal"))
+            for key, label in (("five_hour", "5 hours"), ("seven_day", "Weekly"))
             if isinstance(data.get(key), dict)]
 
 
@@ -90,7 +90,7 @@ def codex():
                             item = limits.get(key)
                             if item:
                                 minutes = item.get("windowDurationMins")
-                                label = {300: "5 horas", 10080: "Semanal"}.get(minutes)
+                                label = {300: "5 hours", 10080: "Weekly"}.get(minutes)
                                 rows.append(window(label or (f"{minutes} min" if minutes else "Limite"),
                                                    item["usedPercent"], item.get("resetsAt")))
                         return rows
@@ -110,13 +110,13 @@ def read(profile):
     label, fetch = profile
     try:
         rows = [r for r in fetch() if r]
-        return dict(name=label, windows=rows, error="" if rows else "Uso indisponível neste plano.")
+        return dict(name=label, windows=rows, error="" if rows else "Usage data is unavailable for this plan.")
     except FileNotFoundError:
-        error = "CLI ou perfil não encontrado."
+        error = "CLI or profile not found."
     except ProfileError as exc:
         error = str(exc)
     except (OSError, HTTPException, KeyError, TypeError, ValueError, subprocess.SubprocessError):
-        error = "Não foi possível consultar este perfil."
+        error = "Could not fetch usage for this profile."
     return dict(name=label, windows=[], error=error)
 
 

@@ -65,6 +65,9 @@ ShellRoot {
         }
     }
     property var lastPlacement: ({})
+    property string overviewMonitor: ""
+    property int overviewWorkspace: 0
+    signal overviewSelected(string monitor, string address)
     signal windowMinimized(var client)
     property var cfg: state.cfg
     readonly property string dockLayout: cfg.dockLayout || (cfg.islands ? "islands" : "bar")
@@ -153,6 +156,10 @@ ShellRoot {
             Connections {
                 target: root
                 function onWindowMinimized(client) { panel.animateWindow(client, false); }
+                function onOverviewSelected(monitor, address) {
+                    if (panel.screen.name === monitor)
+                        panel.requestWindow("focus", address);
+                }
             }
             function requestWindow(action, ...addresses) {
                 if (root.motion && (action === "cycle" || action === "focus")) {
@@ -428,7 +435,7 @@ ShellRoot {
                                 font.weight: Font.DemiBold
                             }
                             Text {
-                                text: hint.previews.length + " janelas"
+                                text: hint.previews.length + " windows"
                                 color: hint.muted
                                 font.pixelSize: 11
                             }
@@ -496,7 +503,7 @@ ShellRoot {
                                     }
                                     ToolButton {
                                         id: windowAction
-                                        text: card.modelData.parked ? "Restaurar" : "Minimizar"
+                                        text: card.modelData.parked ? "Restore" : "Minimize"
                                         Accessible.name: text + " " + (card.modelData.title || label.text)
                                         padding: 4
                                         contentItem: Text {
@@ -665,7 +672,7 @@ ShellRoot {
                         height: width
                         padding: 0
                         hoverEnabled: true
-                        Accessible.name: "Aplicativos"
+                        Accessible.name: "Applications"
                         onHoveredChanged: panel.tip(this, hovered)
                         onClicked: {
                             panel.tipTarget = null;
@@ -901,7 +908,7 @@ ShellRoot {
                             width: panel.iconSize
                             height: width
                             background: Item {}
-                            Accessible.name: modelData.name + " · recente"
+                            Accessible.name: modelData.name + " · recent"
                             contentItem: DockGlyph {
                                 button: parent
                                 source: Quickshell.iconPath(parent.modelData.icon, true)
@@ -952,7 +959,7 @@ ShellRoot {
                             required property var modelData
                             width: panel.iconSize
                             height: width
-                            Accessible.name: modelData.title + " · minimizada"
+                            Accessible.name: modelData.title + " · minimized"
                             contentItem: WindowThumb {
                                 client: parent.modelData
                                 capturing: panel.shown
@@ -1020,7 +1027,7 @@ ShellRoot {
                         padding: 0
                         hoverEnabled: true
                         text: "+" + panel.overflowItems.length
-                        Accessible.name: panel.overflowItems.length + " itens adicionais da dock"
+                        Accessible.name: panel.overflowItems.length + " more dock items"
                         onHoveredChanged: panel.tip(this, hovered)
                         onClicked: {
                             panel.tipTarget = null;
@@ -1058,7 +1065,7 @@ ShellRoot {
                         onHoveredChanged: panel.tip(optionsButton, hovered)
                         width: panel.iconSize
                         height: width
-                        Accessible.name: "Opções da dock"
+                        Accessible.name: "Dock options"
                         onClicked: {
                             panel.openMenu("", optionsButton);
                         }
@@ -1119,9 +1126,9 @@ ShellRoot {
                         text: {
                             switch (modelData.kind) {
                             case "app": return root.appFor(modelData.key)?.name || modelData.key;
-                            case "recent": return modelData.app.name + " · recente";
-                            case "window": return modelData.window.title + " · minimizada";
-                            case "folder": return (modelData.path.split("/").filter(Boolean).pop() || "/") + " · pasta";
+                            case "recent": return modelData.app.name + " · recent";
+                            case "window": return modelData.window.title + " · minimized";
+                            case "folder": return (modelData.path.split("/").filter(Boolean).pop() || "/") + " · folder";
                             }
                             return "";
                         }
@@ -1205,7 +1212,7 @@ ShellRoot {
                             }
                             Text {
                                 visible: panel.selectedWins.length > 0
-                                text: panel.selectedWins.length === 1 ? "1 janela" : panel.selectedWins.length + " janelas"
+                                text: panel.selectedWins.length === 1 ? "1 window" : panel.selectedWins.length + " windows"
                                 color: Qt.alpha(root.ink, 0.68)
                                 font.pixelSize: 11
                             }
@@ -1216,7 +1223,7 @@ ShellRoot {
                 DockOption {
                     ink: root.ink; accent: root.focusAccent
                     visible: panel.selected.length > 0 && !!root.appFor(panel.selected)
-                    text: "Nova janela"
+                    text: "New window"
                     onTriggered: {
                         const tile = tiles.children.find(child => child.modelData === panel.selected);
                         if (root.cfg.launchAnimation && tile?.contentItem?.bounce) tile.contentItem.bounce();
@@ -1225,7 +1232,7 @@ ShellRoot {
                 }
                 Menu {
                     id: recentMenu
-                    title: "Documentos recentes"
+                    title: "Recent documents"
                     padding: 7
                     width: Math.min(292, panel.screen.width - 12)
                     background: Rectangle { radius: 12; color: root.background; border.color: root.outline }
@@ -1283,7 +1290,7 @@ ShellRoot {
                                 spacing: 3
                                 Text {
                                     Layout.fillWidth: true
-                                    text: windowRow.text || "Janela"
+                                    text: windowRow.text || "Window"
                                     textFormat: Text.PlainText
                                     elide: Text.ElideRight
                                     color: root.ink
@@ -1292,14 +1299,14 @@ ShellRoot {
                                 }
                                 Text {
                                     visible: windowRow.modelData.parked || windowRow.focused
-                                    text: windowRow.modelData.parked ? "Minimizada" : "Em foco"
+                                    text: windowRow.modelData.parked ? "Minimized" : "Focused"
                                     color: Qt.alpha(root.ink, 0.70)
                                     font.pixelSize: 11
                                 }
                             }
                             Button {
                                 id: windowAction
-                                text: windowRow.modelData.parked ? "Restaurar" : "Minimizar"
+                                text: windowRow.modelData.parked ? "Restore" : "Minimize"
                                 Accessible.name: text + " " + windowRow.text
                                 padding: 6
                                 contentItem: Text {
@@ -1322,13 +1329,13 @@ ShellRoot {
                 DockOption {
                     ink: root.ink; accent: root.focusAccent
                     visible: !!panel.selected
-                    text: root.cfg.pins.includes(panel.selected) ? "Desafixar" : "Fixar"
+                    text: root.cfg.pins.includes(panel.selected) ? "Unpin" : "Pin"
                     onTriggered: root.set("pins", root.cfg.pins.includes(panel.selected) ? root.cfg.pins.filter(p => p !== panel.selected) : [...root.cfg.pins, panel.selected])
                 }
                 DockOption {
                     ink: root.ink; accent: root.focusAccent
                     visible: panel.orderedKeys().indexOf(panel.selected) > 0
-                    text: "Mover uma posição antes"
+                    text: "Move one position earlier"
                     onTriggered: panel.reorder(panel.selected, panel.orderedKeys().indexOf(panel.selected) - 1)
                 }
                 Repeater {
@@ -1343,14 +1350,14 @@ ShellRoot {
                 DockOption {
                     ink: root.ink; accent: root.focusAccent
                     visible: !panel.selected
-                    text: "Abrir lixeira"
+                    text: "Open trash"
                     onTriggered: Quickshell.execDetached(["gio", "open", "trash:///"])
                 }
                 DockOption {
                     ink: root.ink; accent: root.focusAccent
                     destructive: true
                     visible: !panel.selected
-                    text: "Esvaziar lixeira…"
+                    text: "Empty trash…"
                     onTriggered: root.cmd("empty")
                 }
                 MenuRule {}
@@ -1358,14 +1365,47 @@ ShellRoot {
                     ink: root.ink; accent: root.focusAccent
                     visible: panel.selectedWins.length > 0
                     destructive: true
-                    text: "Forçar encerramento do aplicativo…"
+                    text: "Force quit app…"
                     onTriggered: root.cmd("force", panel.selectedWins[0].address)
                 }
                 DockOption {
                     ink: root.ink; accent: root.focusAccent
-                    text: "Configurar dock…"
+                    text: "Dock settings…"
                     onTriggered: root.cmd("settings")
                 }
+            }
+        }
+    }
+    IpcHandler {
+        target: "overview"
+        function toggle(monitor: string, workspace: int): void {
+            if (root.overviewMonitor === monitor && root.overviewWorkspace === workspace) {
+                root.overviewMonitor = "";
+                return;
+            }
+            if (!Quickshell.screens.some(screen => screen.name === monitor))
+                return;
+            root.overviewWorkspace = workspace;
+            root.overviewMonitor = monitor;
+        }
+    }
+    Loader {
+        readonly property var output: Quickshell.screens.find(screen => screen.name === root.overviewMonitor)
+        active: !!output
+        sourceComponent: WindowOverview {
+            screen: output
+            workspace: root.overviewWorkspace
+            windows: root.state.clients.filter(window => window.origin === workspace && (window.parked || (window.mapped && !window.hidden)))
+                .sort((a, b) => Number(a.parked) - Number(b.parked) || a.address.localeCompare(b.address))
+            activeAddress: root.state.active || ""
+            surface: root.background
+            ink: root.ink
+            accent: root.focusAccent
+            onDismissed: root.overviewMonitor = ""
+            onSelected: address => {
+                const monitor = root.overviewMonitor;
+                root.overviewMonitor = "";
+                root.overviewSelected(monitor, address);
             }
         }
     }

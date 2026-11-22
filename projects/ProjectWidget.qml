@@ -21,7 +21,7 @@ ToolButton {
     implicitWidth: compact ? host.edge : host.edge + dockExtraWidth
     padding: 5
     readonly property color muted: Qt.alpha(host.ink, 0.69)
-    Accessible.name: monitor ? "Recursos dos projetos" : "Comandos dos projetos"
+    Accessible.name: monitor ? "Project Resources" : "Project Commands"
     contentItem: RowLayout {
         spacing: 5
         ProjectMark {
@@ -36,12 +36,12 @@ ToolButton {
             Layout.fillWidth: true
             spacing: 0
             Text {
-                text: tile.monitor ? "Memória" : "Comandos"
+                text: tile.monitor ? "Memory" : "Commands"
                 font.pixelSize: 10
                 color: tile.muted
             }
             Text {
-                text: tile.monitor ? (tile.partial ? "≈" : "") + tile.mem(tile.memoryTotal) : tile.activeRuns + " ativos"
+                text: tile.monitor ? (tile.partial ? "≈" : "") + tile.mem(tile.memoryTotal) : tile.activeRuns + " active"
                 font.pixelSize: 12
                 font.weight: Font.DemiBold
                 color: tile.host.ink
@@ -127,7 +127,7 @@ ToolButton {
         };
         if (sequence.some(c => c.confirm !== false)) {
             data.confirmed = true;
-            confirm("Executar neste projeto?\n" + sequence.map(c => c.argv.join(" ")).join("\n"), data);
+            confirm("Run in this project?\n" + sequence.map(c => c.argv.join(" ")).join("\n"), data);
         } else
             send(data);
     }
@@ -147,7 +147,7 @@ ToolButton {
             else if (panel.mode === "interval") {
                 const data = JSON.parse(editor.text);
                 if (!Number.isInteger(data.open) || !Number.isInteger(data.closed) || data.open < 2 || data.closed < data.open || data.closed > 600)
-                    throw Error("Use 2 a 600 segundos, com intervalo fechado maior ou igual ao aberto.");
+                    throw Error("Use 2 to 600 seconds. The closed-panel interval must be at least as long as the open-panel interval.");
                 host.savePreference("intervals", {
                     open: data.open,
                     closed: data.closed
@@ -355,7 +355,7 @@ ToolButton {
                 B {
                     visible: !!panel.project || !!panel.mode
                     text: "‹"
-                    Accessible.name: "Voltar"
+                    Accessible.name: "Back"
                     onClicked: {
                         if (panel.mode)
                             panel.mode = "";
@@ -371,7 +371,7 @@ ToolButton {
                     Layout.preferredHeight: 34
                 }
                 T {
-                    text: panel.project?.name || (tile.monitor ? "Recursos dos projetos" : "Comandos dos projetos")
+                    text: panel.project?.name || (tile.monitor ? "Project Resources" : "Project Commands")
                     font.pixelSize: 20
                     font.weight: Font.DemiBold
                 }
@@ -388,7 +388,7 @@ ToolButton {
                 }
                 B {
                     text: "×"
-                    Accessible.name: "Fechar"
+                    Accessible.name: "Close"
                     onClicked: panel.visible = false
                 }
             }
@@ -401,14 +401,14 @@ ToolButton {
             RowLayout {
                 visible: !tile.monitor && !panel.mode
                 B {
-                    text: panel.project ? "Comandos" : "Projetos"
+                    text: panel.project ? "Commands" : "Projects"
                     checkable: true
                     checked: !panel.portsTab
                     primary: checked
                     onClicked: panel.portsTab = false
                 }
                 B {
-                    text: panel.project ? "Portas" : "Portas do sistema"
+                    text: panel.project ? "Ports" : "System ports"
                     checkable: true
                     checked: panel.portsTab
                     primary: checked
@@ -422,7 +422,7 @@ ToolButton {
             TextField {
                 Layout.fillWidth: true
                 visible: panel.mode === "logs" || (!!panel.project && !panel.mode && !tile.monitor && !panel.portsTab)
-                placeholderText: panel.mode === "logs" ? "Pesquisar nos logs" : "Pesquisar comandos"
+                placeholderText: panel.mode === "logs" ? "Search logs" : "Search commands"
                 text: panel.query
                 onTextEdited: panel.query = text
             }
@@ -431,8 +431,8 @@ ToolButton {
                 Layout.fillWidth: true
                 Field {
                     id: portFilter
-                    placeholderText: panel.project ? "Filtrar por porta ou protocolo" : "Filtrar por porta, endereço, protocolo, processo ou PID"
-                    Accessible.name: "Filtrar portas"
+                    placeholderText: panel.project ? "Filter by port or protocol" : "Filter by port, address, protocol, process, or PID"
+                    Accessible.name: "Filter ports"
                     text: panel.portQuery
                     onTextEdited: {
                         panel.portQuery = text;
@@ -442,7 +442,7 @@ ToolButton {
                 B {
                     visible: !!panel.portQuery
                     text: "×"
-                    Accessible.name: "Limpar filtro de portas"
+                    Accessible.name: "Clear port filter"
                     onClicked: {
                         panel.portQuery = "";
                         portFilter.forceActiveFocus();
@@ -469,7 +469,7 @@ ToolButton {
                             Layout.fillWidth: true
                             readonly property var metrics: ProjectHub.projects.map(p => p.metric || {})
                             Repeater {
-                                model: tile.monitor ? [[(tile.partial ? "≈" : "") + tile.mem(tile.memoryTotal), "RAM atribuída"], [(summary.metrics.some(m => m.cpuPartial) ? "≈" : "") + summary.metrics.reduce((v, m) => v + (m.totalCpu || 0), 0).toFixed(1) + "%", "CPU"], [summary.metrics.reduce((v, m) => v + (m.processes?.length || 0), 0), "Processos"], [summary.metrics.filter(m => m.processes?.length || m.containers?.some(c => c.state === "running")).length, "Projetos ativos"]] : [[ProjectHub.projects.length, "Projetos"], [tile.activeRuns, "Em execução"], [ProjectHub.projects.reduce((v, p) => v + p.commands.length, 0), "Comandos"]]
+                                model: tile.monitor ? [[(tile.partial ? "≈" : "") + tile.mem(tile.memoryTotal), "Attributed RAM"], [(summary.metrics.some(m => m.cpuPartial) ? "≈" : "") + summary.metrics.reduce((v, m) => v + (m.totalCpu || 0), 0).toFixed(1) + "%", "CPU"], [summary.metrics.reduce((v, m) => v + (m.processes?.length || 0), 0), "Processes"], [summary.metrics.filter(m => m.processes?.length || m.containers?.some(c => c.state === "running")).length, "Active projects"]] : [[ProjectHub.projects.length, "Projects"], [tile.activeRuns, "Running"], [ProjectHub.projects.reduce((v, p) => v + p.commands.length, 0), "Commands"]]
                                 delegate: ColumnLayout {
                                     required property var modelData
                                     spacing: 1
@@ -500,12 +500,12 @@ ToolButton {
                             Layout.bottomMargin: 8
                             spacing: 4
                             T {
-                                text: tile.monitor ? "Qual projeto você quer acompanhar?" : "Escolha a pasta do seu projeto"
+                                text: tile.monitor ? "Choose a project to monitor" : "Choose a project folder"
                                 font.pixelSize: 17
                                 font.weight: Font.DemiBold
                             }
                             T {
-                                text: tile.monitor ? "Adicione uma pasta para acompanhar CPU, memória e processos." : "A Orla procura scripts e tarefas que você pode iniciar por aqui."
+                                text: tile.monitor ? "Add a folder to monitor CPU, memory, and processes." : "Orla finds scripts and tasks you can run from here."
                                 color: tile.muted
                             }
                         }
@@ -515,21 +515,21 @@ ToolButton {
                             spacing: 6
                             B {
                                 primary: true
-                                text: "Adicionar pasta"
+                                text: "Add folder"
                                 onClicked: tile.edit("add", "")
                             }
                             B {
-                                text: "Descobrir projetos"
+                                text: "Discover projects"
                                 onClicked: tile.edit("discover", "")
                             }
                             B {
                                 visible: tile.monitor
-                                text: panel.sortBy === "total" ? "Ordenar por CPU" : "Ordenar por RAM"
+                                text: panel.sortBy === "total" ? "Sort by CPU" : "Sort by RAM"
                                 onClicked: panel.sortBy = panel.sortBy === "total" ? "totalCpu" : "total"
                             }
                             B {
                                 visible: tile.monitor
-                                text: "Intervalos"
+                                text: "Intervals"
                                 onClicked: tile.edit("interval", JSON.stringify({
                                     open: ProjectHub.intervalSeconds,
                                     closed: ProjectHub.idleSeconds
@@ -554,7 +554,7 @@ ToolButton {
                                 Layout.fillWidth: true
                                 readonly property var m: modelData.metric || {}
                                 readonly property int running: ProjectHub.runs.filter(r => r.project === modelData.id && !r.ended).length
-                                text: (m.processes?.length || m.containers?.some(c => c.state === "running") || running ? "●  " : "○  ") + modelData.name + "    " + (m.total !== undefined ? (m.partial || m.approxMemory ? "≈" : "") + tile.mem(m.total) + "   " + (m.cpuPartial ? "≈" : "") + m.totalCpu.toFixed(1) + "%   " + m.processes.length + " processos" : "") + (running ? "   ▶ " + running : "")
+                                text: (m.processes?.length || m.containers?.some(c => c.state === "running") || running ? "●  " : "○  ") + modelData.name + "    " + (m.total !== undefined ? (m.partial || m.approxMemory ? "≈" : "") + tile.mem(m.total) + "   " + (m.cpuPartial ? "≈" : "") + m.totalCpu.toFixed(1) + "%   " + m.processes.length + " processes" : "") + (running ? "   ▶ " + running : "")
                                 contentItem: RowLayout {
                                     spacing: 10
                                     Rectangle {
@@ -572,7 +572,7 @@ ToolButton {
                                     Text {
                                         color: tile.muted
                                         font.pixelSize: 12
-                                        text: tile.monitor ? (m.partial || m.approxMemory ? "≈" : "") + tile.mem(m.total) + "    " + (m.cpuPartial ? "≈" : "") + (m.totalCpu || 0).toFixed(1) + "%" : running + " em execução"
+                                        text: tile.monitor ? (m.partial || m.approxMemory ? "≈" : "") + tile.mem(m.total) + "    " + (m.cpuPartial ? "≈" : "") + (m.totalCpu || 0).toFixed(1) + "%" : running + " running"
                                     }
                                     Text {
                                         color: tile.muted
@@ -600,18 +600,18 @@ ToolButton {
                         Layout.fillWidth: true
                         spacing: 8
                         T {
-                            text: panel.project ? "Portas abertas do projeto" : "Portas em uso no sistema"
+                            text: panel.project ? "Open ports for this project" : "Ports in use on the system"
                             font.pixelSize: 15
                             font.weight: Font.DemiBold
                         }
                         T {
                             visible: !panel.ports.length
-                            text: panel.project ? (ProjectHub.ticking ? "Verificando portas…" : "Nenhuma porta aberta identificada para este projeto.") : (ProjectHub.systemPorts === null ? "Verificando portas…" : "Nenhuma porta TCP ou UDP identificada.")
+                            text: panel.project ? (ProjectHub.ticking ? "Checking ports…" : "No open ports found for this project.") : (ProjectHub.systemPorts === null ? "Checking ports…" : "No TCP or UDP ports found.")
                             color: tile.muted
                         }
                         T {
                             visible: panel.ports.length > 0 && !panel.filteredPorts.length
-                            text: "Nenhuma porta corresponde ao filtro."
+                            text: "No ports match the filter."
                             color: tile.muted
                         }
                         Repeater {
@@ -642,7 +642,7 @@ ToolButton {
                                             font.weight: Font.DemiBold
                                         }
                                         Text {
-                                            text: port.system ? (port.modelData.protocol === "tcp" ? "TCP · Em escuta" : "UDP · Vinculada") : port.local ? port.modelData.slice(0, 3).toUpperCase() + " local" : "Docker"
+                                            text: port.system ? (port.modelData.protocol === "tcp" ? "TCP · Listening" : "UDP · Bound") : port.local ? port.modelData.slice(0, 3).toUpperCase() + " local" : "Docker"
                                             color: tile.muted
                                         }
                                     }
@@ -652,7 +652,7 @@ ToolButton {
                                             if (!port.system)
                                                 return "";
                                             const owners = port.modelData.owners;
-                                            return owners.length ? owners.map(owner => owner.name + " (PID " + owner.pid + ")").join(" · ") : "Processo não identificado";
+                                            return owners.length ? owners.map(owner => owner.name + " (PID " + owner.pid + ")").join(" · ") : "Process owner unavailable";
                                         }
                                         color: tile.muted
                                         font.pixelSize: 12
@@ -677,13 +677,13 @@ ToolButton {
                             Layout.preferredHeight: childrenRect.height
                             spacing: 6
                             B {
-                                text: "Abrir pasta"
+                                text: "Open folder"
                                 onClicked: Qt.openUrlExternally("file://" + panel.project.path.split("/").map(encodeURIComponent).join("/"))
                             }
                             B {
                                 id: editorButton
                                 visible: tile.monitor
-                                text: "Abrir no editor ▾"
+                                text: "Open in editor ▾"
                                 onClicked: editorMenu.open()
                                 Menu {
                                     id: editorMenu
@@ -726,22 +726,22 @@ ToolButton {
                                 }
                             }
                             B {
-                                text: "Configurar"
+                                text: "Configure"
                                 onClicked: tile.edit("configure", JSON.stringify({
                                     name: panel.project.name,
                                     compose: panel.project.compose
                                 }, null, 2))
                             }
                             B {
-                                text: "Remover"
-                                onClicked: tile.confirm("Remover este projeto do registro?", {
+                                text: "Remove"
+                                onClicked: tile.confirm("Remove this project from the registry?", {
                                     op: "remove"
                                 })
                             }
                         }
                         T {
                             visible: tile.monitor
-                            text: "Memória local   " + tile.mem(panel.metric.local) + (panel.metric.approxMemory ? " (inclui RSS estimada)" : "") + "     Containers   " + tile.mem(panel.metric.containerRam) + (panel.metric.partial ? " (parcial)" : "")
+                            text: "Local memory   " + tile.mem(panel.metric.local) + (panel.metric.approxMemory ? " (includes estimated RSS)" : "") + "     Containers   " + tile.mem(panel.metric.containerRam) + (panel.metric.partial ? " (partial)" : "")
                         }
                         Repeater {
                             model: panel.visible && tile.monitor ? ["CPU", "RAM"] : []
@@ -766,7 +766,7 @@ ToolButton {
                         T {
                             visible: tile.monitor && !!panel.metric.cpuPartial
                             color: tile.muted
-                            text: "CPU parcial até haver duas amostras locais e métricas do Docker."
+                            text: "CPU totals are partial until there are two local samples and Docker metrics."
                         }
                         ProcessTable {
                             Layout.fillWidth: true
@@ -783,19 +783,19 @@ ToolButton {
                         }
                         T {
                             visible: tile.monitor && !panel.metric.containers?.length
-                            text: ProjectHub.docker?.online ? "Nenhum container associado." : "Docker indisponível ou bloqueado."
+                            text: ProjectHub.docker?.online ? "No containers associated." : "Docker is unavailable or locked."
                             color: tile.muted
                         }
                         Repeater {
                             model: panel.visible && tile.monitor ? panel.metric.containers || [] : []
                             delegate: T {
                                 required property var modelData
-                                text: modelData.name + "   " + (modelData.service || "") + "   " + modelData.state + "   " + (modelData.health || "") + "   " + (modelData.ram == null ? "RAM indisponível" : tile.mem(modelData.ram))
+                                text: modelData.name + "   " + (modelData.service || "") + "   " + modelData.state + "   " + (modelData.health || "") + "   " + (modelData.ram == null ? "RAM unavailable" : tile.mem(modelData.ram))
                             }
                         }
                         T {
                             visible: !!panel.metric.ports?.length && tile.monitor
-                            text: "Portas   " + (panel.metric.ports || []).join(", ")
+                            text: "Ports   " + (panel.metric.ports || []).join(", ")
                         }
                         Repeater {
                             model: (panel.visible && !panel.mode ? panel.project?.commands || [] : []).filter(c => (c.name + " " + c.category).toLowerCase().includes(panel.query.toLowerCase())).sort((a, b) => Number(!!b.favorite) - Number(!!a.favorite) || String(a.category).localeCompare(String(b.category)))
@@ -854,7 +854,7 @@ ToolButton {
                                     spacing: 5
                                     B {
                                         primary: true
-                                        text: "Executar"
+                                        text: "Run"
                                         onClicked: tile.start(cmd)
                                     }
                                     B {
@@ -864,19 +864,19 @@ ToolButton {
                                     }
                                     B {
                                         visible: !!latest && !latest.ended
-                                        text: "Parar"
-                                        onClicked: tile.confirm("Encerrar " + cmd.name + "?", {
+                                        text: "Stop"
+                                        onClicked: tile.confirm("Stop " + cmd.name + "?", {
                                             op: "stop",
                                             run: latest.id,
                                             confirmed: true
                                         })
                                     }
                                     B {
-                                        text: "Editar"
+                                        text: "Edit"
                                         onClicked: tile.edit("command", JSON.stringify(cmd, null, 2))
                                     }
                                     B {
-                                        text: cmd.favorite ? "Desafixar" : "Favorito"
+                                        text: cmd.favorite ? "Unpin" : "Favorite"
                                         onClicked: tile.send({
                                             op: "save",
                                             command: Object.assign({}, cmd, {
@@ -886,8 +886,8 @@ ToolButton {
                                     }
                                     B {
                                         visible: cmd.id.startsWith("custom:")
-                                        text: "Excluir"
-                                        onClicked: tile.confirm("Excluir comando?", {
+                                        text: "Delete"
+                                        onClicked: tile.confirm("Delete this command?", {
                                             op: "delete",
                                             id: cmd.id
                                         })
@@ -897,7 +897,7 @@ ToolButton {
                         }
                         T {
                             visible: !tile.monitor
-                            text: "Execuções e histórico"
+                            text: "Runs and history"
                             font.bold: true
                         }
                         Repeater {
@@ -913,7 +913,7 @@ ToolButton {
                                     color: Qt.alpha(tile.host.ink, 0.15)
                                 }
                                 T {
-                                    text: r.cmd + "   " + r.state + "   " + Math.max(0, Math.round((r.ended || Date.now() / 1000) - r.started)) + " s" + (r.pid ? "   PID " + r.pid : "   #" + r.id.slice(0, 8)) + (r.code == null ? "" : "   saída " + r.code)
+                                    text: r.cmd + "   " + r.state + "   " + Math.max(0, Math.round((r.ended || Date.now() / 1000) - r.started)) + " s" + (r.pid ? "   PID " + r.pid : "   #" + r.id.slice(0, 8)) + (r.code == null ? "" : "   exit " + r.code)
                                 }
                                 RowLayout {
                                     B {
@@ -922,8 +922,8 @@ ToolButton {
                                     }
                                     B {
                                         visible: !r.ended
-                                        text: "Parar"
-                                        onClicked: tile.confirm("Encerrar esta execução? Serviços associados podem ser compartilhados.", {
+                                        text: "Stop"
+                                        onClicked: tile.confirm("Stop this run? Associated services may be shared.", {
                                             op: "stop",
                                             run: r.id,
                                             confirmed: true
@@ -931,8 +931,8 @@ ToolButton {
                                     }
                                     B {
                                         visible: !r.ended
-                                        text: "Reiniciar"
-                                        onClicked: tile.confirm("Encerrar e iniciar novamente " + r.cmd + "?", {
+                                        text: "Restart"
+                                        onClicked: tile.confirm("Stop and restart " + r.cmd + "?", {
                                             op: "restart",
                                             id: r.cmd,
                                             confirmed: true
@@ -940,8 +940,8 @@ ToolButton {
                                     }
                                     B {
                                         visible: !!r.ended
-                                        text: "Executar novamente"
-                                        onClicked: tile.confirm("Reexecutar " + r.cmd + "?", {
+                                        text: "Run again"
+                                        onClicked: tile.confirm("Run again " + r.cmd + "?", {
                                             op: "start",
                                             id: r.cmd,
                                             confirmed: true
@@ -956,41 +956,41 @@ ToolButton {
                         Layout.fillWidth: true
                         T {
                             text: ({
-                                    add: "Caminho do projeto",
-                                    discover: "Pasta que contém os projetos",
-                                    configure: "Nome e associações Compose",
-                                    interval: "Intervalos em segundos",
-                                    command: "Definição do comando"
+                                    add: "Project path",
+                                    discover: "Folder containing the projects",
+                                    configure: "Name and Compose associations",
+                                    interval: "Intervals in seconds",
+                                    command: "Command definition"
                                 })[panel.mode] || ""
                             font.bold: true
                         }
                         Field {
                             id: projectName
                             visible: panel.mode === "configure"
-                            placeholderText: "Nome do projeto"
+                            placeholderText: "Project name"
                         }
                         Field {
                             id: composeNames
                             visible: panel.mode === "configure"
-                            placeholderText: "Projetos Compose, separados por vírgulas"
+                            placeholderText: "Comma-separated Compose projects"
                         }
                         ColumnLayout {
                             visible: panel.mode === "command"
                             Layout.fillWidth: true
                             Field {
                                 id: commandName
-                                placeholderText: "Nome do comando"
+                                placeholderText: "Command name"
                             }
                             Field {
                                 id: commandDescription
-                                placeholderText: "Descrição (opcional)"
+                                placeholderText: "Description (optional)"
                             }
                             Field {
                                 id: commandCategory
-                                placeholderText: "Categoria"
+                                placeholderText: "Category"
                             }
                             T {
-                                text: "Executável e argumentos"
+                                text: "Executable and arguments"
                                 font.weight: Font.DemiBold
                             }
                             Field {
@@ -1000,24 +1000,24 @@ ToolButton {
                             }
                             CheckBox {
                                 id: inEnvironment
-                                text: "Incluir ao iniciar o ambiente"
+                                text: "Include when starting the environment"
                                 palette.windowText: tile.host.ink
                             }
                             CheckBox {
                                 id: needsConfirm
-                                text: "Exigir confirmação"
+                                text: "Require confirmation"
                                 palette.windowText: tile.host.ink
                             }
                             CheckBox {
                                 id: advanced
-                                text: "Prontidão, dependências e ambiente"
+                                text: "Readiness, dependencies, and environment"
                                 palette.windowText: tile.host.ink
                             }
                         }
                         Field {
                             id: pathField
                             visible: panel.mode === "add" || panel.mode === "discover"
-                            placeholderText: "/caminho/para/projetos"
+                            placeholderText: "/path/to/projects"
                             selectByMouse: true
                             onAccepted: if (text.trim())
                                 tile.save()
@@ -1029,14 +1029,14 @@ ToolButton {
                             selectByMouse: true
                             visible: panel.mode === "interval" || (panel.mode === "command" && advanced.checked)
                             color: tile.host.ink
-                            placeholderText: panel.mode === "add" || panel.mode === "discover" ? "/caminho/para/projetos" : ""
+                            placeholderText: panel.mode === "add" || panel.mode === "discover" ? "/path/to/projects" : ""
                             background: Rectangle {
                                 radius: 6
                                 color: Qt.alpha(tile.host.ink, 0.06)
                             }
                         }
                         B {
-                            text: "Salvar"
+                            text: "Save"
                             onClicked: tile.save()
                         }
                     }
@@ -1048,11 +1048,11 @@ ToolButton {
                         }
                         RowLayout {
                             B {
-                                text: "Cancelar"
+                                text: "Cancel"
                                 onClicked: panel.mode = ""
                             }
                             B {
-                                text: "Confirmar"
+                                text: "Confirm"
                                 onClicked: {
                                     tile.send(panel.pending);
                                     panel.mode = "";
@@ -1062,7 +1062,7 @@ ToolButton {
                     }
                     T {
                         visible: panel.mode === "logs"
-                        text: panel.lines.filter(l => l.toLowerCase().includes(panel.query.toLowerCase())).join("\n") || "Nenhuma linha disponível."
+                        text: panel.lines.filter(l => l.toLowerCase().includes(panel.query.toLowerCase())).join("\n") || "No log lines available."
                         font.family: "monospace"
                     }
                 }

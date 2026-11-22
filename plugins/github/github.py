@@ -17,7 +17,7 @@ def github_activity(org):
     search = "is:pr is:open"
     if org:
         if not isinstance(org, str) or not re.fullmatch(r"[a-zA-Z0-9-]+", org):
-            raise ValueError("Organização inválida")
+            raise ValueError("Invalid organization")
         org_id = subprocess.check_output(["gh", "api", "--hostname", "github.com", "orgs/" + org,
                                           "--jq", ".node_id"], text=True, timeout=20).strip()
         cmd.extend(["-f", "orgId=" + org_id])
@@ -75,7 +75,7 @@ if __name__ == "__main__":
     try:
         payload = github_activity(sys.argv[1] if len(sys.argv) > 1 else "")
     except FileNotFoundError:
-        payload = {"error": "Instale o GitHub CLI (gh) para conectar sua conta."}
+        payload = {"error": "Install the GitHub CLI (gh) to connect your account."}
     except (subprocess.SubprocessError, ValueError, KeyError, TypeError):
-        payload = {"error": "Falha ao consultar o GitHub. Verifique a conexão e o login do gh."}
+        payload = {"error": "Could not reach GitHub. Check your connection and gh login."}
     print(json.dumps(payload))

@@ -17,7 +17,7 @@ ToolButton {
     readonly property color blue: light ? "#12669a" : "#85cefa"
     readonly property color danger: light ? "#a43d32" : "#f2a196"
     function stateName(value) {
-        const names = {running: "Em execução", exited: "Parado", created: "Criado", paused: "Pausado", restarting: "Reiniciando", dead: "Inativo", removing: "Removendo"}
+        const names = {running: "Running", exited: "Stopped", created: "Created", paused: "Paused", restarting: "Restarting", dead: "Inactive", removing: "Removing"}
         return names[value] || value || ""
     }
     readonly property int dockExtraWidth: 40
@@ -142,13 +142,13 @@ ToolButton {
                     ColumnLayout {
                         Layout.fillWidth: true; spacing: 2
                         Caption { text: "Docker"; color: tile.muted; font.pixelSize: 13 }
-                        Caption { text: tile.svc?.authorizing ? "Autenticação em curso" : "Acesso bloqueado"; font.pixelSize: 20; font.weight: Font.DemiBold; Layout.fillWidth: true; wrapMode: Text.WordWrap }
+                        Caption { text: tile.svc?.authorizing ? "Authenticating" : "Access locked"; font.pixelSize: 20; font.weight: Font.DemiBold; Layout.fillWidth: true; wrapMode: Text.WordWrap }
                     }
-                    Command { text: "×"; implicitWidth: 32; Accessible.name: "Fechar painel"; onClicked: panel.visible = false }
+                    Command { text: "×"; implicitWidth: 32; Accessible.name: "Close panel"; onClicked: panel.visible = false }
                 }
                 Caption {
                     Layout.fillWidth: true; wrapMode: Text.WordWrap
-                    text: tile.svc?.authorizing ? "Confirme a solicitação no diálogo do sistema." : tile.svc?.installed ? "Autorize a leitura dos containers e das métricas deste computador por até 10 minutos." : "Instale o auxiliar uma vez para desbloquear o Docker com a senha do sistema."
+                    text: tile.svc?.authorizing ? "Confirm the request in the system dialog." : tile.svc?.installed ? "Allow read access to local containers and metrics for up to 10 minutes." : "Install the helper to unlock Docker using your system password."
                 }
                 Caption {
                     Layout.fillWidth: true; visible: !!tile.svc?.message
@@ -158,7 +158,7 @@ ToolButton {
                     id: unlockButton
                     Layout.fillWidth: true; implicitHeight: 39
                     enabled: !tile.svc?.authorizing
-                    text: tile.svc?.authorizing ? "Aguardando confirmação…" : tile.svc?.installed ? "Desbloquear Docker" : "Instalar auxiliar de autenticação"
+                    text: tile.svc?.authorizing ? "Waiting for confirmation…" : tile.svc?.installed ? "Unlock Docker" : "Install authentication helper"
                     onClicked: tile.svc.unlock()
                     contentItem: Caption {
                         text: unlockButton.text; font.weight: Font.DemiBold
@@ -175,17 +175,17 @@ ToolButton {
                 visible: !panel.needsUnlock
                 Image { source: "docker.svg"; Layout.preferredWidth: 26; Layout.preferredHeight: 26 }
                 Caption { text: "Docker"; font.pixelSize: 20; font.bold: true; Layout.fillWidth: true }
-                Caption { text: tile.svc?.online ? "●  Online" : tile.svc?.locked ? "○  Bloqueado" : "○  Indisponível"; color: tile.svc?.online ? tile.green : tile.muted }
-                ToolButton { text: "×"; Accessible.name: "Fechar painel"; onClicked: panel.visible = false }
+                Caption { text: tile.svc?.online ? "●  Online" : tile.svc?.locked ? "○  Locked" : "○  Unavailable"; color: tile.svc?.online ? tile.green : tile.muted }
+                ToolButton { text: "×"; Accessible.name: "Close panel"; onClicked: panel.visible = false }
                 RefreshButton { busy: !!tile.svc?.busy; ink: tile.host.ink; onClicked: tile.svc.refresh() }
             }
             RowLayout {
                 visible: tile.svc?.online && !panel.container
                 Repeater {
                     model: [
-                        [tile.activeCount, "Em execução"],
-                        [tile.rows.length - tile.activeCount, "Outros estados"],
-                        [tile.rows.some(r => r.ram !== null) ? tile.ram(tile.rows.reduce((sum,r) => sum + (r.ram || 0), 0)) : (tile.activeCount ? "—" : "0 MiB"), "RAM em uso"]
+                        [tile.activeCount, "Running"],
+                        [tile.rows.length - tile.activeCount, "Other states"],
+                        [tile.rows.some(r => r.ram !== null) ? tile.ram(tile.rows.reduce((sum,r) => sum + (r.ram || 0), 0)) : (tile.activeCount ? "—" : "0 MiB"), "RAM in use"]
                     ]
                     delegate: Rectangle {
                         required property var modelData
@@ -204,7 +204,7 @@ ToolButton {
             }
             Caption { visible: !panel.needsUnlock && !!tile.svc?.error; text: tile.svc?.error || ""; Layout.fillWidth: true; wrapMode: Text.WrapAnywhere }
             Caption { visible: !panel.needsUnlock && !panel.container && !!tile.svc?.message; text: tile.svc?.message || ""; Layout.fillWidth: true; wrapMode: Text.Wrap }
-            Caption { visible: tile.svc?.online && !tile.rows.length; text: "Nenhum container neste contexto Docker."; color: tile.muted }
+            Caption { visible: tile.svc?.online && !tile.rows.length; text: "No containers in this Docker context."; color: tile.muted }
             ListView {
                 id: list
                 visible: !panel.needsUnlock && !panel.container
@@ -241,7 +241,7 @@ ToolButton {
                                 Caption { text: tile.stateName(row.modelData.state); color: row.modelData.state === "running" ? tile.green : tile.muted }
                                 Caption { text: "›"; color: tile.muted }
                             }
-                            Caption { text: row.modelData.cpu === null ? "Métricas indisponíveis" : "CPU " + row.modelData.cpu.toFixed(1) + "%   ·   RAM " + tile.ram(row.modelData.ram); color: tile.muted; font.pixelSize: 11 }
+                            Caption { text: row.modelData.cpu === null ? "Metrics unavailable" : "CPU " + row.modelData.cpu.toFixed(1) + "%   ·   RAM " + tile.ram(row.modelData.ram); color: tile.muted; font.pixelSize: 11 }
                             Rectangle {
                                 Layout.fillWidth: true; height: 3; radius: 2; color: Qt.alpha(tile.host.ink, 0.08)
                                 Rectangle { height: parent.height; width: parent.width * Math.min(1, (row.modelData.cpu || 0) / 100); radius: 2; color: tile.host.accent }
@@ -261,7 +261,7 @@ ToolButton {
                     width: actions.availableWidth
                     spacing: 8
                     Command {
-                        text: "‹  Projetos"
+                        text: "‹  Projects"
                         onClicked: panel.selected = ""
                     }
                     RowLayout {
@@ -283,12 +283,12 @@ ToolButton {
                         Caption { Layout.fillWidth: true; text: panel.container?.project || ""; color: tile.muted; elide: Text.ElideRight }
                         Command {
                             text: (panel.container?.id || "").slice(0,12) + "  ⧉"
-                            Accessible.name: "Copiar ID do container"
+                            Accessible.name: "Copy container ID"
                             onClicked: {
                                 clipboard.text = panel.selected
                                 clipboard.selectAll()
                                 clipboard.copy()
-                                tile.svc.message = "ID copiado."
+                                tile.svc.message = "ID copied."
                             }
                         }
                     }
@@ -302,7 +302,7 @@ ToolButton {
                             anchors.margins: 10
                             Repeater {
                                 model: [["CPU", panel.container?.cpu == null ? "—" : panel.container.cpu.toFixed(1) + "%"],
-                                        ["Memória", panel.container?.ram == null ? "—" : tile.ram(panel.container.ram)]]
+                                        ["Memory", panel.container?.ram == null ? "—" : tile.ram(panel.container.ram)]]
                                 delegate: RowLayout {
                                     required property var modelData
                                     Layout.fillWidth: true
@@ -317,7 +317,7 @@ ToolButton {
                         Layout.preferredHeight: childrenRect.height
                         spacing: 6
                         Repeater {
-                            model: [["Logs ao vivo","logs"],["Abrir shell","shell"],["Health checks","health"]]
+                            model: [["Live logs","logs"],["Open shell","shell"],["Health checks","health"]]
                             delegate: Command {
                                 required property var modelData
                                 text: modelData[0]
@@ -337,33 +337,33 @@ ToolButton {
                         spacing: 8
                         Command {
                             visible: ["exited","created"].includes(panel.container?.state)
-                            text: "Iniciar"
+                            text: "Start"
                             tone: tile.green
                             enabled: !tile.svc?.busyAction
                             onClicked: tile.svc.run("start", panel.selected)
                         }
                         Command {
                             visible: panel.container?.state === "running"
-                            text: "Reiniciar"
+                            text: "Restart"
                             enabled: !tile.svc?.busyAction
                             onClicked: tile.svc.run("restart", panel.selected)
                         }
                         Command {
                             visible: panel.container?.state === "running"
-                            text: "Parar container"
+                            text: "Stop container"
                             tone: tile.danger
                             enabled: !tile.svc?.busyAction
                             onClicked: tile.svc.run("stop", panel.selected)
                         }
                     }
                     TextEdit { id: clipboard; visible: false }
-                    Caption { visible: !!panel.container?.urls?.length; text: "Portas publicadas"; font.weight: Font.DemiBold }
+                    Caption { visible: !!panel.container?.urls?.length; text: "Published ports"; font.weight: Font.DemiBold }
                     Repeater {
                         model: panel.container?.urls || []
                         delegate: Command {
                             Layout.maximumWidth: actions.availableWidth
                             required property string modelData
-                            text: "Abrir " + modelData
+                            text: "Open " + modelData
                             onClicked: Qt.openUrlExternally(modelData)
                         }
                     }

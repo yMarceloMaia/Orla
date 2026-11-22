@@ -26,7 +26,7 @@ ToolButton {
     width: vertical || compact ? edge : edge + 105
     height: edge
     padding: 6
-    Accessible.name: "Atividade do GitHub"
+    Accessible.name: "GitHub Activity"
     onClicked: popup.open()
     background: Rectangle {
         radius: 10
@@ -38,7 +38,7 @@ ToolButton {
         Column {
             visible: !tile.vertical && !tile.compact
             Text { text: Number(tile.data.total || 0).toLocaleString(Qt.locale(), "f", 0); visible: tile.data.total !== undefined; font.bold: true; color: tile.ink }
-            Text { text: tile.data.total !== undefined ? "neste ano" : "GitHub"; font.pixelSize: 10; color: tile.ink }
+            Text { text: tile.data.total !== undefined ? "this year" : "GitHub"; font.pixelSize: 10; color: tile.ink }
         }
         ContributionGrid {
             Layout.fillWidth: true
@@ -79,7 +79,7 @@ ToolButton {
                     font.pixelSize: 28
                     font.weight: Font.DemiBold
                 }
-                Label { text: "contribuições neste ano"; color: Qt.alpha(tile.ink, 0.74) }
+                Label { text: "contributions this year"; color: Qt.alpha(tile.ink, 0.74) }
             }
             ContributionGrid {
                 visible: tile.data.total !== undefined
@@ -95,7 +95,7 @@ ToolButton {
                     delegate: ToolButton {
                         required property int index
                         readonly property bool selected: popup.reviews === (index === 0)
-                        text: index === 0 ? "Revisões · " + (tile.data.reviews?.count ?? "…") : "Meus PRs · " + (tile.data.authored?.count ?? "…")
+                        text: index === 0 ? "Reviews · " + (tile.data.reviews?.count ?? "…") : "My PRs · " + (tile.data.authored?.count ?? "…")
                         onClicked: popup.reviews = index === 0
                         padding: 4
                         font.weight: selected ? Font.DemiBold : Font.Normal
@@ -150,7 +150,7 @@ ToolButton {
                         }
                         Label {
                             visible: row.modelData.conflict === true
-                            text: "Conflito de merge"
+                            text: "Merge conflict"
                             color: tile.ink
                             font.bold: true
                         }
@@ -167,17 +167,17 @@ ToolButton {
                                 color: ({SUCCESS:"#39ad67", FAILURE:"#e96865", ERROR:"#e96865", PENDING:"#d3a546", EXPECTED:"#d3a546"})[row.modelData.checks] || Qt.alpha(tile.ink, 0.38)
                             }
                             Text {
-                                text: ({SUCCESS:"Aprovado", FAILURE:"Falhou", ERROR:"Erro", PENDING:"Pendente", EXPECTED:"Aguardando", NONE:"Sem checks"})[row.modelData.checks] || "Sem checks"
+                                text: ({SUCCESS:"Passed", FAILURE:"Failed", ERROR:"Error", PENDING:"Pending", EXPECTED:"Waiting", NONE:"No checks"})[row.modelData.checks] || "No checks"
                                 color: tile.ink; font.pixelSize: 11
                             }
                         }
                     }
                 }
-                Label { anchors.centerIn: parent; visible: !list.count && tile.data.total !== undefined; text: popup.reviews ? "Nenhuma revisão solicitada" : "Nenhum PR aberto"; color: tile.ink }
+                Label { anchors.centerIn: parent; visible: !list.count && tile.data.total !== undefined; text: popup.reviews ? "No review requests" : "No open PRs"; color: tile.ink }
             }
             ToolButton {
                 visible: popup.group?.count > list.count
-                text: "Ver todos no GitHub"
+                text: "View all on GitHub"
                 onClicked: Qt.openUrlExternally("https://github.com/pulls?q=" + encodeURIComponent(tile.data.search + " " + (popup.reviews ? "review-requested:@me" : "author:@me")))
             }
         }

@@ -168,14 +168,14 @@ ToolButton {
                         spacing: 1
                         Label {
                             Layout.fillWidth: true
-                            text: "Bandeja de arquivos"
+                            text: "File Tray"
                             color: tray.ink
                             font.pixelSize: 15
                             font.weight: Font.DemiBold
                             elide: Text.ElideRight
                         }
                         Label {
-                            text: tray.files.count === 1 ? "1 item" : tray.files.count + " itens"
+                            text: tray.files.count === 1 ? "1 item" : tray.files.count + " items"
                             color: Qt.alpha(tray.ink, 0.70)
                             font.pixelSize: 11
                         }
@@ -191,7 +191,7 @@ ToolButton {
                         anchors.leftMargin: 9
                         verticalAlignment: Text.AlignVCenter
                         color: drawerReceiver.containsDrag ? tray.accent : Qt.alpha(tray.ink, 0.76)
-                        text: drawerReceiver.containsDrag ? "Solte para adicionar à bandeja" : "Solte arquivos aqui ou arraste um item para fora"
+                        text: drawerReceiver.containsDrag ? "Drop to add to the tray" : "Drop files here or drag an item out"
                         font.pixelSize: 11
                         elide: Text.ElideRight
                     }
@@ -306,7 +306,7 @@ ToolButton {
                                     Layout.preferredWidth: 28
                                     Layout.preferredHeight: 28
                                     palette.buttonText: tray.ink
-                                    Accessible.name: "Retirar " + row.filename + " da bandeja"
+                                    Accessible.name: "Remove " + row.filename + " from the tray"
                                     background: Rectangle {
                                         radius: 5
                                         color: Qt.alpha(tray.ink, removeButton.hovered ? 0.12 : 0)
@@ -320,7 +320,7 @@ ToolButton {
                     Label {
                         anchors.centerIn: parent
                         visible: !list.count
-                        text: "A bandeja está vazia"
+                        text: "The tray is empty"
                         color: Qt.alpha(tray.ink, 0.70)
                     }
                 }

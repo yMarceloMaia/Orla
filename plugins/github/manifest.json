@@ -1,7 +1,7 @@
 {
   "apiVersion": 1,
   "id": "orla.github",
-  "name": "Atividade do GitHub",
+  "name": "GitHub Activity",
   "widget": "Widget.qml",
   "setting": "githubWidget",
   "defaultEnabled": false,
@@ -10,7 +10,7 @@
   "options": [
     {
       "key": "githubAlerts",
-      "label": "Alertar sobre comentários e conflitos nos meus PRs",
+      "label": "Notify me about comments and merge conflicts on my PRs",
       "defaultOn": true
     }
   ]

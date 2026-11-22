@@ -63,7 +63,7 @@ Rectangle {
         anchors.verticalCenter: parent.verticalCenter
         Text {
             width: parent.width
-            text: tile.player?.trackTitle || tile.player?.identity || "Sem reprodução"
+            text: tile.player?.trackTitle || tile.player?.identity || "Nothing playing"
             textFormat: Text.PlainText
             elide: Text.ElideRight
             color: tile.ink
@@ -142,21 +142,21 @@ Rectangle {
         ControlButton {
             visible: !tile.compact
             glyph: "M3 3h2v10H3z M13 3v10L6 8z"
-            description: "Faixa anterior"
+            description: "Previous track"
             enabled: !!tile.player?.canGoPrevious
             onClicked: tile.player.previous()
         }
         ControlButton {
             primary: true
             glyph: tile.player?.isPlaying ? "M4 3h3v10H4z M9 3h3v10H9z" : "M5 2.5l8.5 5.5L5 13.5z"
-            description: tile.player?.isPlaying ? "Pausar" : "Reproduzir"
+            description: tile.player?.isPlaying ? "Pause" : "Play"
             enabled: !!tile.player?.canTogglePlaying
             onClicked: tile.player.togglePlaying()
         }
         ControlButton {
             visible: !tile.compact
             glyph: "M11 3h2v10h-2z M3 3l7 5-7 5z"
-            description: "Próxima faixa"
+            description: "Next track"
             enabled: !!tile.player?.canGoNext
             onClicked: tile.player.next()
         }

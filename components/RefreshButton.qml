@@ -6,7 +6,7 @@ ToolButton {
     required property bool busy
     required property color ink
     enabled: !busy
-    text: busy ? "Atualizando…" : "Atualizar"
+    text: busy ? "Refreshing…" : "Refresh"
     Accessible.name: text
     horizontalPadding: 10
     verticalPadding: 5

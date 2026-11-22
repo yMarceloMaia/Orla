@@ -19,6 +19,11 @@ Item {
     property bool installed: false
     readonly property bool authorizing: installer.running || (session.running && !online)
     readonly property bool unlocked: session.running && online
+    function updateRows(rows) {
+        // Older installed helpers still emit the previous fallback label.
+        service.rows = (rows || []).map(row => row.project === "Sem projeto Compose"
+            ? Object.assign({}, row, {project: "No Compose project"}) : row);
+    }
     function unlock() {
         if (!panels || !locked || authorizing) return
         message = ""
@@ -57,15 +62,15 @@ Item {
                 service.locked = data.locked === true
                 service.installed = data.installed === true
                 service.online = !data.error
-                service.error = service.locked ? "O Docker local exige autenticação." : data.error || data.warning || ""
-                service.rows = data.rows || []
+                service.error = service.locked ? "The local Docker engine requires authentication." : data.error || data.warning || ""
+                service.updateRows(data.rows)
             }
         }
         onExited: if (service.pending) { service.pending = false; Qt.callLater(service.refresh) }
     }
     Process {
         id: action
-        onExited: code => { if (code !== 0) service.message = "Operação cancelada ou não autorizada." }
+        onExited: code => { if (code !== 0) service.message = "Operation canceled or unauthorized." }
         stdout: StdioCollector {
             onStreamFinished: {
                 if (!text.trim()) return
@@ -79,7 +84,7 @@ Item {
         id: installer
         command: ["/usr/bin/pkexec", "--disable-internal-agent", "/usr/bin/install", "-o", "root", "-g", "root", "-m", "0755", "--", service.script, service.helper]
         onExited: code => {
-            service.message = code === 0 ? "Auxiliar instalado. Clique para desbloquear." : "Instalação não concluída."
+            service.message = code === 0 ? "Helper installed. Click to unlock." : "Installation did not complete."
             service.refresh()
         }
     }
@@ -90,7 +95,7 @@ Item {
             onRead: line => {
                 if (!service.panels) return
                 const data = JSON.parse(line)
-                service.rows = data.rows || []
+                service.updateRows(data.rows)
                 service.online = !data.error
                 service.error = data.error || data.warning || ""
                 if (data.error) session.stdinEnabled = false
@@ -98,7 +103,7 @@ Item {
         }
         onExited: code => {
             service.rows = []; service.online = false; service.locked = true
-            if (service.panels) service.message = code === 126 || code === 127 ? "Autenticação cancelada ou negada." : "Sessão de leitura encerrada."
+            if (service.panels) service.message = code === 126 || code === 127 ? "Authentication canceled or denied." : "Read session ended."
             service.refresh()
         }
     }

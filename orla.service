@@ -1,5 +1,5 @@
 [Unit]
-Description=Orla — dock por workspace
+Description=Orla — per-workspace dock
 PartOf=graphical-session.target
 After=graphical-session-pre.target wayland-session-waitenv.service
 [Service]

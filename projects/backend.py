@@ -45,20 +45,20 @@ class Backend:
                 if r.get("project") == msg["name"] and r.get("workingDir")
             }
             if len(candidates) != 1:
-                raise ValueError("Associe o nome Compose manualmente a uma pasta.")
+                raise ValueError("Associate the Compose project with a folder manually.")
             folder = Path(candidates.pop())
             if (
                 not folder.is_absolute()
                 or not folder.is_dir()
                 or not any((folder / m).exists() for m in registry.MARKERS)
             ):
-                raise ValueError("A pasta do projeto Compose não está disponível.")
+                raise ValueError("The Compose project folder is unavailable.")
             owner = db.execute(
                 "SELECT projects.id FROM projects,json_each(projects.compose) AS labels WHERE labels.value=? LIMIT 1",
                 (msg["name"],),
             ).fetchone()
             if owner:
-                raise ValueError("Projeto Compose já associado.")
+                raise ValueError("This Compose project is already linked.")
             key = registry.register(db, folder)
             db.execute(
                 "UPDATE projects SET compose=json_insert(compose,'$[#]',?) WHERE id=?",
@@ -73,23 +73,23 @@ class Backend:
             )
         elif op not in ("tick", "refresh"):
             if not row:
-                raise ValueError("Projeto indisponível.")
+                raise ValueError("Project unavailable.")
             if op == "openEditor":
                 editor = msg["editor"]
                 variants = {"nvim": ("nvim",), "code": ("code",), "zed": ("zed", "zeditor")}
                 if editor not in variants:
-                    raise ValueError("Editor desconhecido.")
+                    raise ValueError("Unknown editor.")
                 folder = Path(row["path"])
                 if not folder.is_dir():
-                    raise ValueError("A pasta do projeto não está disponível.")
+                    raise ValueError("The project folder is unavailable.")
                 executable = next(filter(None, map(shutil.which, variants[editor])), None)
                 if executable is None:
-                    raise ValueError("Editor não encontrado no PATH: " + editor)
+                    raise ValueError("Editor not found in PATH: " + editor)
                 command = [executable, str(folder)]
                 if editor == "nvim":
                     terminal = shutil.which("xdg-terminal-exec")
                     if terminal is None:
-                        raise ValueError("xdg-terminal-exec não está disponível para abrir o Neovim.")
+                        raise ValueError("xdg-terminal-exec is required to open Neovim.")
                     command = [terminal, "--", *command]
                 return {"editorLaunch": {"command": command, "workingDirectory": str(folder)}}
             if op == "configure":
@@ -97,12 +97,12 @@ class Backend:
                 if not isinstance(names, list) or not all(
                     isinstance(n, str) and n for n in names
                 ):
-                    raise ValueError("Informe uma lista de nomes Compose.")
+                    raise ValueError("Enter a list of Compose project names.")
                 for other in db.execute(
                     "SELECT compose FROM projects WHERE id<>?", (key,)
                 ):
                     if set(names) & set(json.loads(other[0])):
-                        raise ValueError("Um nome Compose já pertence a outro projeto.")
+                        raise ValueError("A Compose name already belongs to another project.")
                 db.execute(
                     "UPDATE projects SET name=?,compose=? WHERE id=?",
                     (msg["name"].strip() or row["name"], json.dumps(names), key),
@@ -112,7 +112,7 @@ class Backend:
                     f"SELECT 1 FROM runs WHERE project=? AND state IN {runner.SQL_ACTIVE}",
                     (key,),
                 ).fetchone():
-                    raise ValueError("Encerre as execuções antes de remover o projeto.")
+                    raise ValueError("Stop active runs before removing this project.")
                 db.execute("INSERT OR IGNORE INTO excluded VALUES(?)", (row["path"],))
                 db.execute("DELETE FROM commands WHERE project=?", (key,))
                 db.execute("DELETE FROM projects WHERE id=?", (key,))
@@ -122,16 +122,16 @@ class Backend:
                 cid = data.get("id") or "custom:" + uuid.uuid4().hex
                 original = registry.commands(db, row).get(cid, {})
                 if not original and not cid.startswith("custom:"):
-                    raise ValueError("Origem desconhecida.")
+                    raise ValueError("Unknown command source.")
                 data["id"] = cid
                 if not data.get("name"):
-                    raise ValueError("Informe um nome.")
+                    raise ValueError("Enter a name.")
                 runner.validate(data)
                 if original.get("source"):
                     for field in ("argv", "source", "id"):
                         if data.get(field) != original.get(field):
                             raise ValueError(
-                                "O comando pertence ao arquivo do projeto."
+                                "Edit this command in its project source file."
                             )
                     data = {
                         k: v
@@ -144,7 +144,7 @@ class Backend:
                 )
             elif op == "delete":
                 if not msg["id"].startswith("custom:"):
-                    raise ValueError("Somente comandos personalizados.")
+                    raise ValueError("Only custom commands can be deleted.")
                 db.execute(
                     "DELETE FROM commands WHERE project=? AND id=?", (key, msg["id"])
                 )
@@ -157,11 +157,11 @@ class Backend:
                 )
                 if not targets:
                     raise ValueError(
-                        "Marque comandos com environment para Iniciar ambiente."
+                        "Mark at least one command to start with the environment."
                     )
                 if op == "restartAll":
                     if not msg.get("confirmed"):
-                        raise ValueError("Confirme o reinício do ambiente.")
+                        raise ValueError("Confirm the environment restart.")
                     order = runner.dependency_order(cmds, targets, True)
                     for cid in reversed(order):
                         for active in db.execute(
@@ -171,9 +171,9 @@ class Backend:
                             runner.stop(db, key, active[0])
                 if op == "restart":
                     if not msg.get("confirmed"):
-                        raise ValueError("Confirme o reinício.")
+                        raise ValueError("Confirm the restart.")
                     if targets[0] not in cmds:
-                        raise ValueError("Comando indisponível.")
+                        raise ValueError("Command unavailable.")
                     active = db.execute(
                         f"SELECT id FROM runs WHERE project=? AND cmd=? AND state IN {runner.SQL_ACTIVE}",
                         (key, targets[0]),
@@ -195,7 +195,7 @@ class Backend:
                     run=msg["run"],
                 )
             else:
-                raise ValueError("Operação desconhecida.")
+                raise ValueError("Unknown operation.")
         db.commit()
         if op == "refresh":
             registry._cache.clear()
@@ -228,7 +228,7 @@ class Backend:
                     }
                     for r in active:
                         if runner.unit(r[0]) not in units:
-                            runner.finish(db, r[0], "Falhou", None)
+                            runner.finish(db, r[0], "Failed", None)
             db.execute(
                 "DELETE FROM runs WHERE ended IS NOT NULL AND id NOT IN (SELECT id FROM runs WHERE ended IS NOT NULL ORDER BY started DESC LIMIT 100) AND NOT EXISTS (SELECT 1 FROM runs active WHERE active.ended IS NULL AND instr(active.deps,runs.id)>0)"
             )
@@ -252,7 +252,7 @@ class Backend:
                 p.update(commands=[], error=str(exc))
             projects.append(p)
         runs = [
-            dict(r)
+            dict(r) | {"state": runner.state_label(r["state"])}
             for r in db.execute(
                 "SELECT id,project,cmd,state,started,ended,pid,code FROM runs ORDER BY started DESC"
             )

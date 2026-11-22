@@ -148,7 +148,7 @@ class Sampler:
                     cmd = stream.read(8192).split(b"\0")
                 unit = UNIT.search(cg)
                 project = managed.get(unit[1]) if unit else None
-                reason = "Gerenciado" if project else "Pasta de trabalho"
+                reason = "Managed" if project else "Working directory"
                 if not project:
                     project = owner(os.readlink(path / "cwd"))
                 if not project:
@@ -160,7 +160,7 @@ class Sampler:
                         ),
                         None,
                     )
-                    reason = "Argumento de caminho"
+                    reason = "Path argument"
                 if project:
                     matches[pid] = project, reason
                 parents[pid] = int(nums[1])
@@ -206,7 +206,7 @@ class Sampler:
                     memory = "PSS"
                 except (OSError, KeyError):
                     ram = int(nums[21]) * os.sysconf("SC_PAGE_SIZE")
-                    memory = "RSS estimada"
+                    memory = "Estimated RSS"
                 try:
                     io = fields(path / "io")
                 except OSError:
@@ -234,7 +234,7 @@ class Sampler:
                         state=nums[0],
                         association=reason
                         if ancestor == pid
-                        else "Subprocesso estimado",
+                        else "Inferred subprocess",
                         read=io.get("read_bytes"),
                         write=io.get("write_bytes"),
                     )

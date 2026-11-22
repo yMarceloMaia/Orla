@@ -31,7 +31,7 @@ def query(key):
 
 def dispatch(expr):
     if run("hyprctl", "dispatch", expr) != "ok":
-        raise RuntimeError("Hyprland recusou a operação")
+        raise RuntimeError("Hyprland rejected the operation")
 
 
 VISUAL_DEFAULTS = dict(extraClaudeProfile=None, githubExcludedOrg="", islands=False, dockLayout=None, dockFinish="classic", fileTray=True, usageCompact=False, githubCompact=False, usageWidget=False, githubWidget=False, mediaPlayer=True, glass=True, reduceMotion=False, launchAnimation=True, indicators=True, appearance="system")
@@ -96,7 +96,7 @@ def native_parked(w):
 def target(w):
     address = w["address"]
     if not re.fullmatch(r"0x[0-9a-fA-F]+", address):
-        raise ValueError("Endereço inválido")
+        raise ValueError("Invalid window address")
     return 'window = "address:' + address + '"'
 
 
@@ -185,7 +185,7 @@ def restore(w, place=False):
     if dest not in {s["id"] for s in query("workspaces")}:
         dest = query("activeworkspace")["id"]
     if dest < 1:
-        raise RuntimeError("Selecione um workspace normal para recuperar")
+        raise RuntimeError("Select a regular workspace to recover windows")
     with without_slide(w):
         if not (place and restore_split(w, dest)):
             move(w, int(dest))
@@ -227,7 +227,7 @@ def window_action(action, address):
             raise RuntimeError(result)
     elif action == "force":
         pid = w["pid"]
-        if pid > 1 and confirm("Forçar encerramento do aplicativo? Alterações não salvas serão perdidas."):
+        if pid > 1 and confirm("Force quit the app? Unsaved changes will be lost."):
             if any(c["address"] == address and c["pid"] == pid for c in query("clients")):
                 os.kill(pid, signal.SIGKILL)
 
@@ -284,7 +284,7 @@ def show_settings():
         pid = int(run("systemctl", "--user", "show", UNIT, "-p", "MainPID", "--value"))
         def find():
             return next((w for w in query("clients") if w["pid"] == pid
-                         and w["title"] == "Orla · Configurações" and w["mapped"]), None)
+                         and w["title"] in ("Orla · Settings", "Orla · Configurações") and w["mapped"]), None)
         dest = query("activeworkspace")["id"]
         window = find()
         if not window:
@@ -295,7 +295,7 @@ def show_settings():
                     break
                 time.sleep(.05)
         if not window:
-            raise RuntimeError("A janela de configurações não abriu")
+            raise RuntimeError("The settings window did not open")
         if parked(window) or native_parked(window):
             restore(window)
         current = find()
@@ -414,6 +414,12 @@ def main(action, *args):
         return
     if action == "settings":
         return show_settings()
+    if action == "overview":
+        monitor = next((m for m in query("monitors") if m["focused"]), None)
+        if monitor:
+            run("qs", "ipc", "-p", str(ROOT / "shell.qml"), "call", "overview", "toggle",
+                monitor["name"], str(monitor["activeWorkspace"]["id"]))
+        return
     if action == "watch":
         watch()
     elif action == "cycle":
@@ -440,10 +446,10 @@ def main(action, *args):
         workspace = next((w["workspace"]["name"] for w in query("clients") if parked(w)), PARK)
         dispatch(f'hl.dsp.workspace.toggle_special({json.dumps(workspace.removeprefix("special:"))})')
     elif action == "empty":
-        if confirm("Esvaziar a lixeira permanentemente?"):
+        if confirm("Permanently empty the trash?"):
             run("gio", "trash", "--empty")
     elif action == "folder":
-        choice = subprocess.run(["zenity", "--file-selection", "--directory", "--title=Adicionar pasta à dock"], capture_output=True, text=True)
+        choice = subprocess.run(["zenity", "--file-selection", "--directory", "--title=Add a folder to the dock"], capture_output=True, text=True)
         if choice.returncode == 0:
             cfg = settings()
             cfg["folders"] = list(dict.fromkeys([*cfg["folders"], choice.stdout.rstrip("\n")]))

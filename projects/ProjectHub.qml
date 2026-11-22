@@ -58,7 +58,7 @@ Item {
         stdinEnabled: true
         onExited: if (hub.clients > 0) {
             hub.ticking = false;
-            hub.error = "O serviço de projetos foi interrompido. Reconectando…";
+            hub.error = "The project service stopped. Reconnecting…";
             retry.restart();
         }
         onStarted: {

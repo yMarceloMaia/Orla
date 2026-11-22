@@ -92,13 +92,13 @@ Popup {
                 }
                 StackLabel {
                     Layout.fillWidth: true
-                    text: files.count === 1 ? "1 item" : files.count + " itens"
+                    text: files.count === 1 ? "1 item" : files.count + " items"
                     color: stack.muted
                     font.pixelSize: 11
                 }
             }
             StackButton {
-                text: "Abrir pasta ↗"
+                text: "Open folder ↗"
                 onClicked: stack.openEntry(stack.path)
             }
         }
@@ -113,8 +113,8 @@ Popup {
                 anchors.margins: 3
                 spacing: 4
                 StackButton {
-                    text: stack.newest ? "Data de modificação" : "Nome"
-                    Accessible.name: "Ordenar por " + (stack.newest ? "nome" : "data de modificação")
+                    text: stack.newest ? "Date modified" : "Name"
+                    Accessible.name: "Sort by " + (stack.newest ? "nome" : "date modified")
                     onClicked: {
                         stack.newest = !stack.newest;
                         stack.reversed = stack.newest;
@@ -125,14 +125,14 @@ Popup {
                 }
                 StackButton {
                     text: stack.reversed ? "↓" : "↑"
-                    Accessible.name: stack.reversed ? "Mudar para ordem crescente" : "Mudar para ordem decrescente"
+                    Accessible.name: stack.reversed ? "Switch to ascending order" : "Switch to descending order"
                     onClicked: stack.reversed = !stack.reversed
                 }
                 StackButton {
-                    text: "Ocultos"
+                    text: "Hidden files"
                     checkable: true
                     checked: stack.showHidden
-                    Accessible.name: "Mostrar arquivos ocultos"
+                    Accessible.name: "Show hidden files"
                     onClicked: stack.showHidden = checked
                 }
             }
@@ -183,7 +183,7 @@ Popup {
                         }
                         StackLabel {
                             Layout.fillWidth: true
-                            text: (entry.fileIsDir ? "Pasta" : entry.fileSuffix ? entry.fileSuffix.toUpperCase() : "Arquivo") + " · " + Qt.formatDateTime(entry.fileModified, "dd/MM/yyyy · HH:mm")
+                            text: (entry.fileIsDir ? "Folder" : entry.fileSuffix ? entry.fileSuffix.toUpperCase() : "File") + " · " + Qt.formatDateTime(entry.fileModified, "dd/MM/yyyy · HH:mm")
                             color: stack.muted
                             font.pixelSize: 11
                         }
@@ -193,7 +193,7 @@ Popup {
             StackLabel {
                 anchors.centerIn: parent
                 visible: files.status === FolderListModel.Ready && !files.count
-                text: "Pasta vazia"
+                text: "Empty folder"
                 color: stack.muted
             }
         }

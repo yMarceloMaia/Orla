@@ -12,7 +12,7 @@ FloatingWindow {
     required property var cfg
     signal edited(string key, var value)
     signal requested(string action)
-    title: "Orla · Configurações"
+    title: "Orla · Settings"
     visible: false
     implicitWidth: 580
     implicitHeight: 590
@@ -23,7 +23,7 @@ FloatingWindow {
 
     readonly property string dockLayout: cfg.dockLayout || (cfg.islands ? "islands" : "bar")
     property int section: 0
-    readonly property var sections: ["Aparência", "Janelas", "Widgets", "Pastas"]
+    readonly property var sections: ["Appearance", "Windows", "Widgets", "Folders"]
 
     component Caption: Text {
         color: page.muted
@@ -100,7 +100,7 @@ FloatingWindow {
         width: Math.min(parent.width - 40, 760)
         spacing: 12
         Text {
-            text: "Configurações da Orla"
+            text: "Orla Settings"
             color: page.ink
             font.pixelSize: 24
             font.weight: Font.DemiBold
@@ -141,12 +141,12 @@ FloatingWindow {
                         anchors.margins: 16
                         spacing: 8
                         Caption {
-                            text: "Posição na tela"
+                            text: "Dock position"
                         }
                         RowLayout {
                             Layout.fillWidth: true
                             Repeater {
-                                model: ["Esquerda", "Inferior", "Direita"]
+                                model: ["Left", "Bottom", "Right"]
                                 Action {
                                     required property int index
                                     required property string modelData
@@ -188,7 +188,7 @@ FloatingWindow {
                         RowLayout {
                             Layout.fillWidth: true
                             Caption {
-                                text: "Tamanho dos ícones"
+                                text: "Icon size"
                                 Layout.fillWidth: true
                             }
                             Caption {
@@ -199,7 +199,7 @@ FloatingWindow {
                         C.Slider {
                             id: sizeSlider
                             Layout.fillWidth: true
-                            Accessible.name: "Tamanho dos ícones"
+                            Accessible.name: "Icon size"
                             from: 30
                             to: 68
                             stepSize: 2
@@ -227,12 +227,12 @@ FloatingWindow {
                                 page.edited("size", value)
                         }
                         Caption {
-                            text: "Tema"
+                            text: "Theme"
                         }
                         RowLayout {
                             Layout.fillWidth: true
                             Repeater {
-                                model: ["Sistema", "Clara", "Escura"]
+                                model: ["System", "Light", "Dark"]
                                 Action {
                                     required property int index
                                     required property string modelData
@@ -245,11 +245,11 @@ FloatingWindow {
                                 }
                             }
                         }
-                        Caption { text: "Layout da dock" }
+                        Caption { text: "Dock layout" }
                         RowLayout {
                             Layout.fillWidth: true
                             Repeater {
-                                model: [{id: "bar", label: "Barra"}, {id: "islands", label: "Ilhas"}, {id: "shelf", label: "Prateleira 3D"}]
+                                model: [{id: "bar", label: "Bar"}, {id: "islands", label: "Islands"}, {id: "shelf", label: "3D Shelf"}]
                                 delegate: Action {
                                     required property var modelData
                                     Layout.fillWidth: true
@@ -261,14 +261,14 @@ FloatingWindow {
                             }
                         }
                         Caption {
-                            text: "Acabamento"
+                            text: "Finish"
                             visible: page.dockLayout !== "islands"
                         }
                         RowLayout {
                             visible: page.dockLayout !== "islands"
                             Layout.fillWidth: true
                             Repeater {
-                                model: [{id: "classic", label: "Clássico"}, {id: "paper", label: "Papel"}, {id: "neon", label: "Neon"}]
+                                model: [{id: "classic", label: "Classic"}, {id: "paper", label: "Paper"}, {id: "neon", label: "Neon"}]
                                 delegate: Action {
                                     required property var modelData
                                     Layout.fillWidth: true
@@ -281,22 +281,22 @@ FloatingWindow {
                         }
                         Toggle {
                             visible: page.dockLayout !== "islands" && (page.cfg.dockFinish || "classic") === "classic"
-                            text: "Fundo translúcido"
+                            text: "Translucent background"
                             checked: page.cfg.glass
                             onClicked: page.edited("glass", checked)
                         }
                         Toggle {
-                            text: "Ampliar ícones sob o ponteiro"
+                            text: "Magnify icons on hover"
                             checked: page.cfg.zoom
                             onClicked: page.edited("zoom", checked)
                         }
                         Toggle {
-                            text: "Animar abertura dos aplicativos"
+                            text: "Animate app launches"
                             checked: page.cfg.launchAnimation
                             onClicked: page.edited("launchAnimation", checked)
                         }
                         Toggle {
-                            text: "Reduzir movimento"
+                            text: "Reduce motion"
                             checked: page.cfg.reduceMotion
                             onClicked: page.edited("reduceMotion", checked)
                         }
@@ -311,28 +311,28 @@ FloatingWindow {
                         anchors.margins: 16
                         spacing: 8
                         Toggle {
-                            text: "Ocultar automaticamente"
+                            text: "Auto-hide the dock"
                             checked: page.cfg.auto
                             onClicked: page.edited("auto", checked)
                         }
                         Toggle {
-                            text: "Indicar aplicativos abertos"
+                            text: "Show running app indicators"
                             checked: page.cfg.indicators
                             onClicked: page.edited("indicators", checked)
                         }
                         Toggle {
-                            text: "Mostrar aplicativos recentes"
+                            text: "Show recently closed apps"
                             checked: page.cfg.recentApps
                             onClicked: page.edited("recentApps", checked)
                         }
                         Toggle {
-                            text: "Mostrar janelas minimizadas na dock"
+                            text: "Show minimized windows in the dock"
                             checked: page.cfg.separateMinimized
                             onClicked: page.edited("separateMinimized", checked)
                         }
                         Rectangle { Layout.fillWidth: true; implicitHeight: 1; color: Qt.alpha(page.ink, 0.13) }
                         Action {
-                            text: "Restaurar todas as janelas minimizadas"
+                            text: "Restore all minimized windows"
                             onClicked: page.requested("recover")
                         }
                     }
@@ -384,18 +384,18 @@ FloatingWindow {
                         anchors.margins: 16
                         spacing: 8
                         Toggle {
-                            text: "Mostrar pastas como pilhas"
+                            text: "Show folders as stacks"
                             checked: page.cfg.stacks
                             onClicked: page.edited("stacks", checked)
                         }
                         RowLayout {
                             Layout.fillWidth: true
                             Caption {
-                                text: "Pastas de acesso rápido"
+                                text: "Quick-access folders"
                                 Layout.fillWidth: true
                             }
                             Action {
-                                text: "Adicionar…"
+                                text: "Add…"
                                 onClicked: page.requested("folder")
                             }
                         }
@@ -413,8 +413,8 @@ FloatingWindow {
                                     font.pixelSize: 14
                                 }
                                 Action {
-                                    text: "Remover"
-                                    Accessible.name: "Remover " + parent.modelData
+                                    text: "Remove"
+                                    Accessible.name: "Remove " + parent.modelData
                                     onClicked: page.edited("folders", page.cfg.folders.filter(f => f !== parent.modelData))
                                 }
                             }

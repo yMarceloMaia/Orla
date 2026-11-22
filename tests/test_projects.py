@@ -112,12 +112,12 @@ class Projects(unittest.TestCase):
         )
         self.req("all", project=self.p)
         self.req("start", project=self.j, id=node)
-        self.wait(server, ["Pronto"])
-        done = self.wait(downstream, ["Concluído"])
-        active = self.wait(node, ["Executando"])
+        self.wait(server, [runner.READY])
+        done = self.wait(downstream, [runner.COMPLETED])
+        active = self.wait(node, [runner.RUNNING])
         self.assertEqual(
             self.req("logs", project=self.p, run=done["id"])["logs"],
-            ["started", "[linha protegida]"],
+            ["started", "[redacted]"],
         )
         self.backend.db.close()
         self.backend = Backend()
@@ -128,7 +128,7 @@ class Projects(unittest.TestCase):
         self.assertIn("tcp/" + str(port), p["metric"]["ports"])
         self.assertGreater(p["metric"]["local"], 0)
         self.assertTrue(
-            any(r["association"] == "Gerenciado" for r in p["metric"]["processes"])
+            any(r["association"] == "Managed" for r in p["metric"]["processes"])
         )
         with self.assertRaises(ValueError):
             self.req("remove", project=self.p)
@@ -139,9 +139,9 @@ class Projects(unittest.TestCase):
             ).fetchone()[0]
         )
         os.kill(active["pid"], signal.SIGKILL)
-        self.wait(node, ["Falhou"])
+        self.wait(node, [runner.FAILED])
         self.req("stop", project=self.p)
-        self.wait(server, ["Cancelado"])
+        self.wait(server, [runner.CANCELED])
         self.req("remove", project=self.p)
         self.assertEqual(len(self.req("tick", monitor=True)["projects"]), 1)
 
@@ -152,7 +152,7 @@ class Projects(unittest.TestCase):
             self.req("start", project=self.p, id=a)
         fail = self.cmd(self.p, "fail", ["false"])
         self.req("start", project=self.p, id=fail)
-        self.assertEqual(self.wait(fail, ["Falhou"])["code"], 1)
+        self.assertEqual(self.wait(fail, [runner.FAILED])["code"], 1)
 
     def test_sources_permissions_and_refresh(self):
         (self.py / "Makefile").write_text("build:\n\ttrue\n")
@@ -195,15 +195,15 @@ class Projects(unittest.TestCase):
             ready={"type": "http", "url": f"http://127.0.0.1:{port}/"},
         )
         self.req("start", project=self.p, id=cmd)
-        first = self.wait(cmd, ["Pronto"])
+        first = self.wait(cmd, [runner.READY])
         self.req("restart", project=self.p, id=cmd, confirmed=True)
-        second = self.wait(cmd, ["Pronto"])
+        second = self.wait(cmd, [runner.READY])
         self.assertNotEqual(first["id"], second["id"])
         many = self.cmd(
             self.p, "logs", [sys.executable, "-c", "for n in range(400): print(n)"]
         )
         self.req("start", project=self.p, id=many)
-        done = self.wait(many, ["Concluído"])
+        done = self.wait(many, [runner.COMPLETED])
         lines = self.req("logs", project=self.p, run=done["id"])["logs"]
         self.assertEqual(len(lines), 150)
         self.assertEqual(lines[-1], "399")
@@ -217,14 +217,14 @@ class Projects(unittest.TestCase):
         spec.loader.exec_module(docker)
         snapshot = docker.reply(["detail"])
         if "error" in snapshot:
-            self.skipTest("Engine não acessível")
+            self.skipTest("Docker engine unavailable")
         rows = [
             r
             for r in snapshot["rows"]
-            if r["project"] != "Sem projeto Compose" and r["state"] == "running"
+            if r["project"] != "No Compose project" and r["state"] == "running"
         ]
         if len(rows) < 2:
-            self.skipTest("São necessários dois containers Compose ativos")
+            self.skipTest("Two active Compose containers are required")
         self.req(
             "configure",
             project=self.p,
@@ -234,7 +234,7 @@ class Projects(unittest.TestCase):
         self.req("docker", rows=rows)
         local = self.cmd(self.p, "local", ["sleep", "30"])
         self.req("start", project=self.p, id=local)
-        self.wait(local, ["Executando"])
+        self.wait(local, [runner.RUNNING])
         metric = next(
             p["metric"]
             for p in self.req("tick", monitor=True)["projects"]
@@ -260,7 +260,7 @@ class Projects(unittest.TestCase):
         self.req("docker", rows=rows)
         process = self.cmd(self.p, "sleep", ["sleep", "30"])
         self.req("start", project=self.p, id=process)
-        self.wait(process, ["Executando"])
+        self.wait(process, [runner.RUNNING])
         sample = self.req("tick", monitor=True)
         p = next(p for p in sample["projects"] if p["id"] == self.p)
         self.assertEqual(p["metric"]["containerRam"], 200)

@@ -10,7 +10,7 @@ UsageTile {
     leftEdge: host.leftEdge
     surface: host.background
     profile: host.cfg.usageCompact === true ? "Claude" : (host.cfg.usageCompact || "all")
-    summaryPeriod: host.preference("summaryPeriod", "Semanal")
+    summaryPeriod: host.preference("summaryPeriod", "Weekly")
     onSelectSummaryPeriod: period => host.savePreference("summaryPeriod", period)
     accounts: host.service.planUsage
     busy: host.service.busy

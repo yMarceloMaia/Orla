@@ -21,7 +21,7 @@ CLI = ["docker"]
 def restrict_helper():
     # Only the installed, isolated entry point may access the system socket.
     if os.path.abspath(__file__) != HELPER or not sys.flags.isolated:
-        raise ValueError("Use o auxiliar instalado em /usr/local/lib.")
+        raise ValueError("Use the helper installed in /usr/local/lib.")
     uid = pwd.getpwnam("nobody").pw_uid
     gid = grp.getgrnam("docker").gr_gid
     os.chdir("/")
@@ -37,7 +37,7 @@ def docker(*args, timeout=15):
     result = subprocess.run([*CLI, *args], capture_output=True, text=True,
                             errors="replace", timeout=timeout)
     if result.returncode:
-        raise ValueError(result.stderr.strip()[:600] or "O Docker não concluiu a operação.")
+        raise ValueError(result.stderr.strip()[:600] or "Docker did not complete the operation.")
     return result.stdout.strip()
 
 
@@ -87,7 +87,7 @@ def snapshot(detail):
             cid, name, state, labels, bindings = map(json.loads, metadata.split("\t"))
             rows.append(dict(workingDir=(labels or {}).get("com.docker.compose.project.working_dir") if endpoint == "localhost" else None,
                              service=(labels or {}).get("com.docker.compose.service"), health=health, id=cid, name=name.lstrip("/"), state=state,
-                             project=(labels or {}).get("com.docker.compose.project") or "Sem projeto Compose",
+                             project=(labels or {}).get("com.docker.compose.project") or "No Compose project",
                              urls=ports(bindings, endpoint), cpu=None, ram=None))
     warnings = ""
     active = [row for row in rows if row["state"] == "running"]
@@ -101,7 +101,7 @@ def snapshot(detail):
                 if cid in by_id:
                     by_id[cid].update(cpu=float(cpu.rstrip("%")), ram=memory_bytes(ram.split("/")[0].strip()))
         except (ValueError, subprocess.TimeoutExpired):
-            warnings = "Métricas de recursos indisponíveis."
+            warnings = "Resource metrics are unavailable."
     rows.sort(key=lambda r: (r["project"].casefold(), r["name"].casefold()))
     return dict(rows=rows, warning=warnings)
 
@@ -111,18 +111,18 @@ def main(args):
         return snapshot(args == ["detail"])
     op, cid = args
     if not re.fullmatch("[0-9a-f]{64}", cid):
-        raise ValueError("ID de container inválido.")
+        raise ValueError("Invalid container ID.")
     if op == "health":
         state = json.loads(docker("inspect", "--format", "{{json .State.Health}}", cid) or "null")
         if not state:
-            return dict(message="Sem health check configurado.")
-        recent = [f'{log["End"]} · saída {log["ExitCode"]}\n{log["Output"].strip()[:500]}'
+            return dict(message="No health check configured.")
+        recent = [f'{log["End"]} · exit code {log["ExitCode"]}\n{log["Output"].strip()[:500]}'
                   for log in state.get("Log", [])[-3:]]
         return dict(message="\n".join([state["Status"], *recent]))
     if op in ("start", "stop", "restart"):
         docker(op, cid, timeout=90)
-        return dict(message="Operação concluída.")
-    raise ValueError("Operação desconhecida.")
+        return dict(message="Operation complete.")
+    raise ValueError("Unknown operation.")
 
 
 def reply(args):
@@ -151,13 +151,13 @@ def privileged(args):
         read_session()
         return
     if len(args) != 2 or not re.fullmatch("[0-9a-f]{64}", args[1]):
-        raise ValueError("Destino inválido.")
+        raise ValueError("Invalid target.")
     op, cid = args
     if op in ("shell", "logs"):
         command = ["exec", "-it", cid, "sh"] if op == "shell" else ["logs", "--tail", "200", "--follow", cid]
         os.execv(CLI[0], [*CLI, *command])
     if op not in ("health", "start", "stop", "restart"):
-        raise ValueError("Operação inválida.")
+        raise ValueError("Invalid operation.")
     print(json.dumps(reply(args)))
 
 

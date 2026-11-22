@@ -34,14 +34,14 @@ ColumnLayout {
     }
     function stateName(s) {
         return ({
-                R: "Em execução",
-                S: "Em espera",
-                D: "Aguardando E/S",
-                T: "Suspenso",
-                t: "Em depuração",
-                Z: "Zumbi",
-                I: "Ocioso",
-                X: "Encerrado"
+                R: "Running",
+                S: "Sleeping",
+                D: "Waiting for I/O",
+                T: "Suspended",
+                t: "Being debugged",
+                Z: "Zombie",
+                I: "Idle",
+                X: "Exited"
             })[s] || s;
     }
     component Cell: Text {
@@ -55,7 +55,7 @@ ColumnLayout {
         required property string field
         padding: 0
         implicitHeight: 28
-        Accessible.name: "Ordenar por " + text
+        Accessible.name: "Sort by " + text
         onClicked: table.sortBy = field
         contentItem: Cell {
             text: sort.text + (table.sortBy === sort.field ? " ↓" : "")
@@ -71,13 +71,13 @@ ColumnLayout {
     Cell {
         Layout.topMargin: 6
         Layout.bottomMargin: 5
-        text: "Processos locais (" + table.processes.length + ")"
+        text: "Local processes (" + table.processes.length + ")"
         font.weight: Font.DemiBold
         font.pixelSize: 15
     }
     Cell {
         visible: !table.processes.length
-        text: "Nenhum processo local identificado."
+        text: "No local processes found."
         color: table.muted
     }
     RowLayout {
@@ -88,7 +88,7 @@ ColumnLayout {
         spacing: 8
         Cell {
             Layout.fillWidth: true
-            text: "Processo"
+            text: "Process"
             color: table.muted
         }
         Cell {
@@ -131,7 +131,7 @@ ColumnLayout {
                 horizontalPadding: 10
                 verticalPadding: 0
                 Accessible.name: row.modelData.name + ", PID " + row.modelData.pid
-                Accessible.description: row.open ? "Recolher detalhes" : "Mostrar detalhes"
+                Accessible.description: row.open ? "Collapse details" : "Show details"
                 onClicked: table.expanded = row.open ? -1 : row.modelData.pid
                 background: Rectangle {
                     radius: 5
@@ -177,7 +177,7 @@ ColumnLayout {
                 columnSpacing: 16
                 rowSpacing: 5
                 Repeater {
-                    model: row.open ? [["Comando", row.modelData.command], ["Estado", table.stateName(row.modelData.state)], ["Tempo ativo", table.duration(row.modelData.seconds)], ["Associação", row.modelData.association], ["Leitura", table.sizeText(row.modelData.read)], ["Escrita", table.sizeText(row.modelData.write)], ["Memória", row.modelData.memory]] : []
+                    model: row.open ? [["Command", row.modelData.command], ["State", table.stateName(row.modelData.state)], ["Uptime", table.duration(row.modelData.seconds)], ["Association", row.modelData.association], ["Read", table.sizeText(row.modelData.read)], ["Write", table.sizeText(row.modelData.write)], ["Memory", row.modelData.memory]] : []
                     delegate: RowLayout {
                         required property var modelData
                         Layout.fillWidth: true

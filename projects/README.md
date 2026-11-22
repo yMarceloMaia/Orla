@@ -1,39 +1,41 @@
-# Projetos na Orla
+# Project widgets
 
-Em **Configurações → Widgets**, habilite **Recursos dos projetos**, **Comandos dos projetos** ou ambos. Eles compartilham um único registro e um auxiliar Python por sessão. Os serviços dos projetos rodam como o usuário, em unidades transitórias do systemd.
+Enable **Project Resources**, **Project Commands**, or both under **Settings → Widgets**. They share one project registry and one Python helper per session. Commands run as the current user in transient systemd units.
 
-## Cadastrar e monitorar
+## Adding and monitoring projects
 
-**Adicionar pasta** registra o diretório informado. **Descobrir projetos** registra a pasta se ela tiver marcadores de projeto ou procura nos seus filhos diretos. A Orla volta a verificar as pastas de descoberta e respeita projetos removidos manualmente. Renomeie o projeto em **Configurar**. O ID interno permanece estável.
+**Add folder** registers a directory. **Discover projects** accepts a folder with project markers or scans its direct children. Orla revisits discovery folders and remembers manually removed projects. Rename a project with **Configure**. Its internal ID stays stable.
 
-O monitor usa o cgroup das execuções da Orla para identificar processos gerenciados. Para processos externos, usa diretório de trabalho, caminhos absolutos nos argumentos e ascendência. Essas associações são estimativas. CPU de 100% corresponde a um núcleo. O triângulo marca processos com pelo menos 90% de um núcleo na amostra. A memória local usa PSS quando disponível e identifica a aproximação por RSS. Os contadores de disco são acumulados desde o início do processo. A lista de portas mostra sockets observáveis no namespace de rede da sessão. O monitor não estima tráfego por processo.
+The monitor uses each managed run's cgroup to attribute processes. For other processes, it estimates project ownership from the working directory, absolute paths in arguments, and ancestry. CPU usage of 100% represents one core. A triangle marks processes using at least 90% of a core in the current sample. Orla uses PSS for local memory when available and labels RSS estimates. Disk counters accumulate from the start of each process.
 
-Em **Intervalos**, configure segundos com o painel aberto e fechado. Os padrões são 4 e 30 segundos. O histórico de CPU e RAM mantém 60 amostras por projeto e reinicia com o auxiliar. A cada descoberta completa em `/proc`, o monitor guarda os PIDs relevantes para as leituras seguintes.
+**Project Commands → System ports** lists visible TCP listeners and bound UDP sockets in the host network namespace. It shows the address and any process name and PID Orla can read. The **Ports** tab inside a project lists sockets associated with that project and links for its published Docker ports. The filter matches the fields available in each view.
+
+Use **Intervals** to adjust sampling with the panel open or closed. The defaults are 4 and 30 seconds. CPU and RAM charts retain 60 samples and reset when the helper restarts. The monitor caches candidate PIDs between full scans of `/proc`.
 
 ## Docker
 
-Habilite o Docker Manager para compartilhar seus dados. Em **Configurar**, informe os nomes Compose separados por vírgula. Se o Docker Manager fornecer uma pasta Compose local válida, **Importar Compose** permite registrá-la diretamente. Um nome Compose pode pertencer a um único projeto.
+Enable Docker Manager to share its data. Under **Configure**, enter the Compose project names as a comma-separated list. If Docker Manager reports a valid local Compose directory, **Import Compose** can register it directly. A Compose name belongs to one project at a time.
 
-As métricas dos containers aparecem separadas das locais. O painel marca medições parciais quando o Engine fornece apenas metadados. A autenticação continua pelo Docker Manager e segue a duração da sua sessão de leitura. Se já instalou o auxiliar privilegiado de uma versão anterior, atualize-o conforme a seção **Docker Manager** do README para receber serviço, pasta Compose e saúde no modo autenticado.
+The monitor reports container metrics separately from local process metrics. It marks totals as partial when Docker only supplies metadata. Authenticate through Docker Manager. If you installed an older privileged helper, update it using the instructions in the [Docker Manager section](../README.md#docker-manager) to receive service names, project folders, and health status.
 
-## Executar comandos
+## Running project commands
 
-A descoberta lê scripts de package.json, alvos simples de Makefile, receitas de justfile, tarefas de Taskfile e serviços Compose. Para scripts JavaScript, o campo packageManager tem prioridade sobre os lockfiles. A descoberta de Taskfile e Compose usa **PyYAML** (pacote Arch `python-yaml`). O executável correspondente ao comando deve estar no PATH do serviço de usuário.
+Orla discovers package.json scripts, simple Makefile targets, justfile recipes, Taskfile tasks, and Compose services. For JavaScript projects, the `packageManager` field takes precedence over lockfiles. Taskfile and Compose discovery use **PyYAML** (`python-yaml` on Arch). Make sure the command is on the systemd user service's PATH.
 
-1. Abra um projeto no widget de comandos e escolha **Executar** em um comando descoberto. Use **Editar** para ajustar sua configuração.
-2. Informe o executável e os argumentos como uma lista, por exemplo `["python", "-m", "http.server", "8000"]`. Em comandos descobertos, esse campo acompanha o arquivo de origem. O diretório de execução deve estar dentro do projeto.
-3. Em **Prontidão, dependências e ambiente**, use `depends` para referenciar os IDs das etapas anteriores. O painel exibe cada ID na lista. **Executar** inclui as dependências do comando selecionado.
-4. Configure `ready` conforme o serviço. Exemplos: `{"type":"tcp","host":"127.0.0.1","port":5432}`, `{"type":"http","url":"http://localhost:8000/health"}`, `{"type":"docker","project":"meu-projeto","service":"db"}` e `{"type":"process"}`. O teste Docker requer dados recentes do Docker Manager e um health check configurado no container. O timeout padrão é de 120 segundos.
-5. Use **Parar** na execução para encerrar a unidade gerenciada. Comandos que iniciam serviços do Docker requerem acesso ao Engine no ambiente de execução. A autorização de leitura do widget não eleva comandos de projeto.
+1. Open a project in **Project Commands** and click **Run** on a discovered command. Click **Edit** to configure it.
+2. Enter the executable and arguments as a list, such as `["python", "-m", "http.server", "8000"]`. Edit the source file to change discovered arguments. The working directory must be inside the project.
+3. Under **Readiness, dependencies, and environment**, use `depends` to reference command IDs shown in the list. **Run** includes the selected command's dependencies.
+4. Configure `ready` for the service. Supported examples are `{"type":"tcp","host":"127.0.0.1","port":5432}`, `{"type":"http","url":"http://localhost:8000/health"}`, `{"type":"docker","project":"example-project","service":"db"}`, and `{"type":"process"}`. Docker readiness requires fresh Docker Manager data and a container health check. The default timeout is 120 seconds.
+5. Click **Stop** on a run to stop its unit. Commands that start Docker services need access to the engine in their own execution environment.
 
-A interface inicia comandos apenas por ação do usuário. Execuções ativas continuam supervisionadas se você fechar ou reiniciar a dock. **Logs** abre o terminal padrão via `xdg-terminal-exec` para acompanhar stdout e stderr. O painel também permite pesquisar as últimas 150 linhas por execução. O histórico guarda as últimas 100 execuções terminadas e as ativas. **Reiniciar** substitui uma execução ativa. **Executar novamente** usa a definição atual do comando.
+Running commands remain supervised when you close or restart Orla. **Logs** opens the default terminal with `xdg-terminal-exec` to stream stdout and stderr. You can also search the last 150 lines per run in the panel. History keeps the latest 100 completed runs and any active runs. **Restart** replaces an active run. **Run again** uses the current command definition.
 
-## Configuração e privacidade
+## Configuration and privacy
 
-O registro e o histórico ficam em `$XDG_STATE_HOME/orla/projects/`, normalmente `~/.local/state/orla/projects/`, em um diretório privado da conta. Informe referências a variáveis já presentes no ambiente do systemd de usuário, por exemplo `"env":{"API_TOKEN":"DEV_API_TOKEN"}`. A Orla resolve o valor no início da execução. Para shell explícito, informe o executável e seus argumentos e habilite `"shell":true`.
+The registry and history live in a directory private to your account under `$XDG_STATE_HOME/orla/projects/`, normally `~/.local/state/orla/projects/`. Reference variables already in the systemd user environment with entries such as `"env":{"API_TOKEN":"DEV_API_TOKEN"}`. Orla resolves the value when the run starts. To opt in to passing a command string through a shell, specify the shell and its arguments explicitly and set `"shell":true`.
 
-Os logs filtram linhas com nomes ou formatos comuns de credenciais, blocos de chave privada e valores explicitamente fornecidos por referência de ambiente. Para comandos que imprimem conteúdo confidencial arbitrário, use `"capture":false` para suprimir a saída. O diretório do projeto, a definição do comando e o histórico pertencem ao usuário local.
+Logs redact common credential names and formats, private key blocks, and values passed by environment reference. Use `"capture":false` to suppress output from a command that might print other confidential data. Project directories, definitions, and run history stay in your account.
 
-## Testes
+## Tests
 
-Execute `python tests/test_projects.py -v` em uma sessão Linux com systemd de usuário, Node.js e PyYAML. A suíte cria projetos temporários, usa unidades reais e remove seus processos ao terminar. O teste Docker ao vivo requer acesso de leitura ao Engine e pelo menos dois containers Compose ativos.
+Run `python tests/test_projects.py -v` in a Linux session with a systemd user manager, Node.js, and PyYAML. The suite uses temporary projects and real units and cleans up its processes. The live Docker test requires read access to the engine and at least two active Compose containers.

@@ -16,8 +16,20 @@ from urllib.parse import urlsplit
 
 from registry import database
 
-ACTIVE = ("Aguardando", "Iniciando", "Executando", "Pronto")
-SQL_ACTIVE = "('Aguardando','Iniciando','Executando','Pronto')"
+# Existing databases and already-running supervisors use these persisted state codes.
+QUEUED, STARTING, RUNNING, READY, COMPLETED, FAILED, CANCELED = (
+    "Aguardando", "Iniciando", "Executando", "Pronto", "Concluído", "Falhou", "Cancelado",
+)
+ACTIVE = (QUEUED, STARTING, RUNNING, READY)
+SQL_ACTIVE = "(" + ",".join(repr(state) for state in ACTIVE) + ")"
+STATE_LABELS = dict(zip((*ACTIVE, COMPLETED, FAILED, CANCELED),
+                        ("Queued", "Starting", "Running", "Ready", "Completed", "Failed", "Canceled")))
+
+
+def state_label(state):
+    return STATE_LABELS.get(state, state)
+
+
 SENSITIVE = re.compile(
     r"password|passwd|token|secret|authorization|credential|api.?key|private.?key|cookie|senha",
     re.IGNORECASE,
@@ -26,7 +38,7 @@ SENSITIVE = re.compile(
 
 def unit(run):
     if not re.fullmatch("[a-f0-9]{32}", run):
-        raise ValueError("Execução inválida.")
+        raise ValueError("Invalid run ID.")
     return "orla-project-" + run + ".service"
 
 
@@ -48,13 +60,13 @@ def validate(spec):
         or not argv
         or not all(isinstance(a, str) and "\0" not in a for a in argv)
     ):
-        raise ValueError("Informe o executável e argumentos como uma lista.")
+        raise ValueError("Enter an executable and its arguments as a list.")
     if (
         Path(argv[0]).name in {"sh", "bash", "zsh", "fish", "dash"}
         and any(a.startswith("-") and "c" in a for a in argv[1:])
         and spec.get("shell") is not True
     ):
-        raise ValueError("Defina shell como true para executar texto via shell.")
+        raise ValueError("Set shell to true to run a shell command string.")
     credentials = re.compile(
         r"(?i)(?:password|passwd|token|secret|api[_-]?key|authorization)\s*[:=]\s*[^\s]+|://[^ /]+:[^ /]+@|(?:gh[pousr]_|github_pat_|sk-)[\w.-]{10,}"
     )
@@ -62,7 +74,7 @@ def validate(spec):
         credentials.search(a) or (a.startswith("-") and SENSITIVE.search(a))
         for a in argv
     ):
-        raise ValueError("Use uma referência de ambiente para a credencial.")
+        raise ValueError("Use an environment variable reference for credentials.")
     env = spec.get("env", {})
     if not isinstance(env, dict) or any(
         not re.fullmatch(r"[A-Za-z_][A-Za-z_0-9]*", k)
@@ -71,35 +83,35 @@ def validate(spec):
         for k, v in env.items()
     ):
         raise ValueError(
-            "Variáveis devem referenciar nomes do ambiente do systemd de usuário."
+            "Variables must reference names in the systemd user environment."
         )
     if not isinstance(spec.get("depends", []), list) or not all(
         isinstance(d, str) for d in spec.get("depends", [])
     ):
-        raise ValueError("depends deve conter IDs de comandos.")
+        raise ValueError("depends must contain command IDs.")
     if not 1 <= int(spec.get("timeout", 120)) <= 3600:
-        raise ValueError("Timeout deve estar entre 1 e 3600 segundos.")
+        raise ValueError("The timeout must be between 1 and 3600 seconds.")
     if compose_command(spec) and spec.get("policy", "shared") != "shared":
-        raise ValueError("Serviços Compose exigem parada individual confirmada.")
+        raise ValueError("Stopping a Compose service requires individual confirmation.")
     if spec.get("policy", "managed") not in ("managed", "shared"):
-        raise ValueError("Política desconhecida.")
+        raise ValueError("Unknown run policy.")
     check = spec.get("ready", {})
     kind = check.get("type", "process")
     if kind not in ("process", "tcp", "http", "docker"):
-        raise ValueError("Verificação de prontidão desconhecida.")
+        raise ValueError("Unknown readiness check.")
     if kind == "tcp" and not 0 < int(check["port"]) < 65536:
-        raise ValueError("Porta inválida.")
+        raise ValueError("Invalid port.")
     if kind == "http" and (
         credentials.search(check["url"]) or urlsplit(check["url"]).password is not None
     ):
-        raise ValueError("Use um endpoint de prontidão sem credenciais.")
+        raise ValueError("Use a readiness endpoint without credentials.")
     if kind == "http" and (
         urlsplit(check["url"]).scheme not in ("http", "https")
         or not urlsplit(check["url"]).hostname
     ):
-        raise ValueError("Use um endpoint HTTP.")
+        raise ValueError("Use an HTTP or HTTPS endpoint.")
     if kind == "docker" and not (check.get("service") and check.get("project")):
-        raise ValueError("Informe o serviço Compose.")
+        raise ValueError("Enter the Compose project and service names.")
 
 
 def dependency_order(cmds, targets, confirmed):
@@ -107,13 +119,13 @@ def dependency_order(cmds, targets, confirmed):
 
     def visit(k):
         if k in visiting or k not in cmds:
-            raise ValueError("Dependência circular ou desconhecida: " + k)
+            raise ValueError("Circular or unknown dependency: " + k)
         if k in order:
             return
         spec = cmds[k]
         validate(spec)
         if spec.get("confirm", False) and not confirmed:
-            raise ValueError("Confirme a execução de " + spec["name"])
+            raise ValueError("Confirm before running " + spec["name"])
         visiting.add(k)
         for dep in spec.get("depends", []):
             visit(dep)
@@ -141,7 +153,7 @@ def start(db, project, cmds, targets, confirmed=False):
             spec = dict(cmds[k])
             cwd = (Path(project["path"]) / spec.get("cwd", ".")).resolve(strict=True)
             if not cwd.is_dir() or not cwd.is_relative_to(Path(project["path"])):
-                raise ValueError("Diretório de execução fora do projeto.")
+                raise ValueError("The working directory is outside the project.")
             spec["cwd"] = str(cwd)
             rid = ids[k] = uuid.uuid4().hex
             deps = [ids[d] for d in spec.get("depends", [])]
@@ -151,7 +163,7 @@ def start(db, project, cmds, targets, confirmed=False):
                     rid,
                     project["id"],
                     k,
-                    "Aguardando",
+                    QUEUED,
                     time.time(),
                     None,
                     None,
@@ -187,7 +199,7 @@ def start(db, project, cmds, targets, confirmed=False):
             capture_output=True,
         )
         if result.returncode:
-            finish(db, rid, "Falhou", result.returncode)
+            finish(db, rid, FAILED, result.returncode)
     return ids
 
 
@@ -220,9 +232,9 @@ def stop(db, project, rid=None, shared=False):
                 "SELECT ended FROM runs WHERE id=?", (row["id"],)
             ).fetchone()[0]
         ):
-            raise ValueError("Não foi possível encerrar a unidade.")
+            raise ValueError("Could not stop the systemd unit.")
         if not res.returncode:
-            finish(db, row["id"], "Cancelado", None)
+            finish(db, row["id"], CANCELED, None)
 
 
 def probe(db, check):
@@ -281,14 +293,14 @@ def worker(rid):
                 for d in deps
             ]
             if (
-                any(not s or s[0] in ("Falhou", "Cancelado") for s in states)
+                any(not s or s[0] in (FAILED, CANCELED) for s in states)
                 or time.monotonic() > deadline
             ):
-                raise ValueError("Dependência indisponível")
+                raise ValueError("Dependency unavailable")
             if all(
-                s[0] in ("Pronto", "Concluído")
+                s[0] in (READY, COMPLETED)
                 or (
-                    s[0] == "Executando"
+                    s[0] == RUNNING
                     and not json.loads(
                         db.execute("SELECT spec FROM runs WHERE id=?", (d,)).fetchone()[
                             0
@@ -299,7 +311,7 @@ def worker(rid):
             ):
                 break
             time.sleep(0.25)
-        db.execute("UPDATE runs SET state='Iniciando' WHERE id=?", (rid,))
+        db.execute("UPDATE runs SET state=? WHERE id=?", (STARTING, rid))
         db.commit()
         allowed = {
             "PATH",
@@ -335,7 +347,7 @@ def worker(rid):
             stderr=subprocess.STDOUT,
         )
         db.execute(
-            "UPDATE runs SET state='Executando',pid=? WHERE id=?", (process.pid, rid)
+            "UPDATE runs SET state=?,pid=? WHERE id=?", (RUNNING, process.pid, rid)
         )
         db.commit()
         check = spec.get("ready")
@@ -355,7 +367,7 @@ def worker(rid):
             if private_block:
                 if re.search(r"-----END .*PRIVATE KEY-----", value):
                     private_block = False
-                value = "[linha protegida]"
+                value = "[redacted]"
             if (
                 SENSITIVE.search(value)
                 or any(v in value for v in secrets)
@@ -364,11 +376,11 @@ def worker(rid):
                     value,
                 )
             ):
-                value = "[linha protegida]"
+                value = "[redacted]"
             db.execute("INSERT INTO logs(run,line) VALUES(?,?)", (rid, value[:1000]))
 
         if check and check.get("type", "process") == "process":
-            db.execute("UPDATE runs SET state='Pronto' WHERE id=?", (rid,))
+            db.execute("UPDATE runs SET state=? WHERE id=?", (READY, rid))
             db.commit()
             check = None
         next_probe = 0
@@ -403,7 +415,7 @@ def worker(rid):
                 except (OSError, http.client.HTTPException):
                     ready = False
                 if ready:
-                    db.execute("UPDATE runs SET state='Pronto' WHERE id=?", (rid,))
+                    db.execute("UPDATE runs SET state=? WHERE id=?", (READY, rid))
                     db.commit()
                     check = None
                 elif time.monotonic() > deadline:
@@ -411,18 +423,18 @@ def worker(rid):
         if tail:
             log(tail)
         code = process.wait()
-        finish(db, rid, "Concluído" if code == 0 and not check else "Falhou", code)
+        finish(db, rid, COMPLETED if code == 0 and not check else FAILED, code)
     except InterruptedError:
-        finish(db, rid, "Cancelado", None)
+        finish(db, rid, CANCELED, None)
     except Exception as exc:
         messages = {
-            FileNotFoundError: "Executável ou diretório indisponível.",
-            KeyError: "Variável de ambiente não disponível.",
-            TimeoutError: "A verificação de prontidão expirou.",
-            ValueError: "Dependência ou configuração inválida.",
+            FileNotFoundError: "The executable or directory is unavailable.",
+            KeyError: "The environment variable is unavailable.",
+            TimeoutError: "The readiness check timed out.",
+            ValueError: "Invalid dependency or configuration.",
         }
-        note(messages.get(type(exc), "Não foi possível executar o comando."))
-        finish(db, rid, "Falhou", None)
+        note(messages.get(type(exc), "Could not run the command."))
+        finish(db, rid, FAILED, None)
     finally:
         if process and process.poll() is None:
             process.terminate()

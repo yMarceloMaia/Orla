@@ -1,10 +1,10 @@
 # Orla
 
-Dock para Omarchy e Hyprland, inspirada na [dock do Grassfield](https://github.com/grassfieldhq/grassfield). A Orla roda em um processo Quickshell separado e exibe os aplicativos do workspace atual em cada monitor. É possível fixar e reordenar ícones, visualizar janelas, minimizá-las e restaurá-las pela dock.
+Orla is a per-workspace dock for Omarchy and Hyprland, inspired by the [Grassfield dock](https://github.com/grassfieldhq/grassfield). It runs in a separate Quickshell process and shows the apps on each monitor's current workspace. Pin and reorder apps, preview their windows, and minimize or restore them from the dock.
 
-## Instalação
+## Installation
 
-Execute os comandos **como seu usuário, em uma sessão gráfica do Omarchy**. A Orla usa a configuração Lua do Hyprland e o systemd de usuário. A combinação testada foi Omarchy 4.5, Hyprland 0.56.2 e Quickshell 0.3.2 com Qt 6. Outros requisitos são Git, Python 3 com PyGObject (no Arch, `python-gobject`), Zenity e GIO. O instalador verifica os comandos necessários e usa os pacotes já presentes no sistema.
+Run these commands **as your regular user in an Omarchy graphical session**. Orla uses Hyprland's Lua configuration and a systemd user service. The tested setup is Omarchy 4.5, Hyprland 0.56.2, and Quickshell 0.3.2 with Qt 6. It also requires Git, Python 3 with PyGObject (`python-gobject` on Arch), Zenity, and GIO. The installer checks for the commands it needs.
 
 ```bash
 git clone https://github.com/yMarceloMaia/Orla.git ~/.local/share/orla
@@ -13,100 +13,113 @@ cd ~/.local/share/orla
 ~/.local/bin/orla enable
 ```
 
-O instalador cria links para o comando em `~/.local/bin`, para o serviço em `~/.config/systemd/user` e para o atalho do launcher em `~/.local/share/applications`. **Mantenha a pasta clonada no lugar** enquanto usar a dock. Os exemplos abaixo pressupõem que `~/.local/bin` esteja no seu `PATH`.
+The installer links the command into `~/.local/bin`, the service into `~/.config/systemd/user`, and the launcher entry into `~/.local/share/applications`. Keep the checkout in place. The examples below assume `~/.local/bin` is on your PATH.
 
-Ao habilitar a Orla, a dock aparece na sessão atual e volta nos próximos logins. Se a dock nativa do Omarchy estiver ativa, a Orla a desativa temporariamente e a reativa ao encerrar. As preferências ficam em `~/.config/orla/settings.json`.
+Enabling Orla starts it for the current session and future logins. If the native Omarchy dock is active, Orla temporarily disables it and re-enables it on exit. Orla stores preferences in `~/.config/orla/settings.json`.
 
-## Plugins e widgets
+## Using the dock
 
-Docker Manager, mídia, GitHub, uso de IA e bandeja de arquivos são plugins oficiais distribuídos junto com a Orla. Para instalar um widget independente ou criar o seu, consulte o [contrato de plugins v1](PLUGINS.md).
+| Gesture | Result |
+|---|---|
+| Click an app icon | Launches the app, focuses its window, or minimizes its only window if already focused. |
+| Click an app with several windows | Restores a minimized window first. When all are visible, cycles through them. |
+| Hover over an app with several windows | Shows previews. Click a preview to focus or restore its window. |
+| Right-click an app | Shows individual windows, minimize and restore actions, and pinning options. |
+| Drag files onto an app | An outline indicates that the app accepts the selected files. Drop them to open them in the app. |
+| Middle-click an app | Requests a new window. A three-finger tap also works when configured as a middle-click. Single-instance apps may reuse a window. |
+| Drag an app icon | Reorders it. Drop inside the dock to save or outside to cancel. |
 
-Para acompanhar recursos por projeto ou executar comandos com dependências, consulte o [guia dos widgets de projetos](projects/README.md).
+The gear menu opens **Dock settings**, where you can change the position, icon size, hover magnification, auto-hide behavior, and quick-access folders. The menu also provides access to the trash. A fullscreen window hides Orla on its monitor.
+
+Open **Appearance** to choose **Bar**, **Islands**, or **3D Shelf**. Bar and 3D Shelf support Classic, Paper, and Neon finishes. On smaller displays, Orla compacts widgets and reduces icon size. The **+N** button gives you access to items that do not fit. Drag the divider between apps and folders away from the screen edge to increase the icon size, or towards the edge to decrease it.
+
+Orla can show folders as stacks, up to three recently closed apps, and separate previews for minimized windows. Click a stack to sort and browse files, or click a minimized preview to restore the window. Compatible apps can show up to five documents from the desktop's recent-files history.
+
+### Window overview
+
+Run `orla overview` to toggle the overview for the active workspace on the focused monitor. It includes windows minimized from that workspace. Click a thumbnail or use the arrow keys and **Enter** to focus or restore a window. **Esc** closes the overview.
+
+To bind it to **Super + Alt + D**, add this line to `~/.config/hypr/bindings.lua`.
+
+```lua
+o.rebind("SUPER + ALT + D", "Orla window overview", "~/.local/bin/orla overview")
+```
+
+## Plugins and widgets
+
+Orla ships with Docker Manager, Media Player, GitHub Activity, Claude and Codex Usage, File Tray, and the project widgets. See the [plugin API](PLUGINS.md) to install or build a plugin. See the [project widget guide](projects/README.md) for resource monitoring and project commands.
+
+### File Tray
+
+Drop local files on the tray icon or in its open panel. The count is shared across monitors and workspaces. Drag the tray icon to pass the last item to another app, or open the tray and drag a specific item. **×** removes the reference from the tray. The tray clears when Orla restarts.
+
+### Media Player
+
+The player shows the current track and playback controls from an MPRIS-compatible app. Right-click the widget to switch between the full player and the icon. In icon mode, hover to show the controls.
 
 ### Docker Manager
 
-Habilite **Docker Manager** em **Configurações → Widgets**. O widget usa o CLI `docker` e o contexto configurado no ambiente do serviço da Orla. Se o Engine local exigir senha, clique em **Instalar auxiliar de autenticação…** uma vez e depois em **Desbloquear Docker**. O diálogo do Polkit recebe a senha. O auxiliar é uma cópia de `plugins/docker/manager.py` instalada em `/usr/local/lib/orla-docker-manager`, de propriedade do root. Instale-o a partir de um checkout de confiança.
+Enable **Docker Manager** in **Settings → Widgets**. It uses the `docker` CLI and the context available to the Orla user service. If the local engine requires authentication, click **Install authentication helper** once, then **Unlock Docker**. The system's Polkit dialog handles authentication. The installer copies `plugins/docker/manager.py` from your checkout into `/usr/local/lib/orla-docker-manager` as a root-owned executable. Use a trusted checkout when installing it.
 
-A sessão desbloqueada consulta somente o Docker local. Ela termina ao fechar o último painel ou após dez minutos. Controles, health checks, shell e logs pedem autorização separada. Um terminal de logs ou shell já aberto tem sua própria duração. Para atualizar o auxiliar após atualizar a Orla, execute no checkout `sudo install -o root -g root -m 0755 -- plugins/docker/manager.py /usr/local/lib/orla-docker-manager`. Para removê-lo, execute `sudo rm -- /usr/local/lib/orla-docker-manager`.
+The unlocked session reads data from the local Docker engine for up to ten minutes and ends when the last panel closes. Control actions, health checks, shell access, and logs require separate authorization. Terminals opened for a shell or live logs have their own lifetime. To update the helper, run `sudo install -o root -g root -m 0755 -- plugins/docker/manager.py /usr/local/lib/orla-docker-manager` from the updated checkout. To remove it, run `sudo rm -- /usr/local/lib/orla-docker-manager`.
 
-Clique no widget para ver os containers por projeto Compose, com CPU e memória enquanto o painel estiver aberto. Containers sem a label `com.docker.compose.project` aparecem em **Sem projeto Compose**. Clique no container ou use o botão direito para iniciar, parar, reiniciar, copiar o ID, consultar o histórico recente de health checks ou abrir uma porta TCP publicada. O link usa HTTPS para a porta interna 443 e HTTP para as demais. Shell e logs ao vivo abrem no terminal padrão via `xdg-terminal-exec`. A imagem do container precisa fornecer `sh` para o shell interativo.
+Click the widget to browse containers grouped by Compose project and see CPU and memory metrics. Containers without the `com.docker.compose.project` label appear under **No Compose project**. Click or right-click a container for its controls, recent health checks, and published TCP ports. Published-port links use HTTPS for container port 443 and HTTP for other ports. Shell and live logs open in the default terminal via `xdg-terminal-exec`. Shell access requires `sh` in the container.
 
-## Usar a dock
+### Optional integrations
 
-| Gesto | Resultado |
+Enable the corresponding widget in **Settings → Widgets** after signing in to the required CLI. Executables need to be on the systemd user service's PATH.
+
+| Integration | Setup |
 |---|---|
-| Clique no ícone | Abre o aplicativo, foca sua janela ou minimiza a única janela já focada. |
-| Clique com várias janelas | Restaura primeiro uma janela minimizada. Quando todas estão visíveis, alterna entre elas. |
-| Passe o ponteiro sobre um app com várias janelas | Mostra miniaturas. Clique em uma para ir diretamente à janela. |
-| Botão direito | Mostra as janelas individualmente, ações de minimizar/restaurar e opções de fixação. |
-| Arraste arquivos locais sobre um aplicativo | O contorno indica que o aplicativo aceita todos os formatos selecionados. Solte sobre o ícone para abrir os arquivos nele. |
-| Botão do meio | Solicita uma nova janela. O toque de três dedos também funciona se o touchpad emitir clique do meio. Aplicativos de instância única podem reutilizar uma janela. |
-| Segure e arraste | Os ícones vizinhos abrem espaço. Solte dentro da dock para salvar a ordem ou fora para cancelar. |
+| GitHub | Install the GitHub CLI and run `gh auth login --hostname github.com`. Orla reads contributions, pull requests, and checks using the active account. Comment and merge conflict notifications display the repository and PR number. |
+| Claude | Run `claude auth login`. Orla reads the local OAuth credential from `~/.claude/.credentials.json` to query plan limits from Anthropic's API. |
+| Codex | Run `codex login` with the account you want to monitor. Orla queries the local CLI through `codex app-server` and `account/rateLimits/read`. |
 
-Na engrenagem, escolha **Configurar dock…** para ajustar posição, tamanho, ampliação, ocultação automática e pastas de acesso rápido. O menu também dá acesso à lixeira. Em tela cheia, a dock se oculta no monitor correspondente, inclusive quando configurada para ficar sempre visível.
+On another computer, sign in with the accounts you want to use there.
 
-A divisória entre os aplicativos e as pastas também ajusta o tamanho dos ícones. Arraste-a para longe da borda para aumentar ou em direção à borda para diminuir.
+#### Second Claude profile
 
-Nas configurações, você pode exibir pastas em pilha, até três aplicativos fechados recentemente e uma miniatura separada para cada janela minimizada do workspace. Clique na pasta para explorar os arquivos por data ou nome e na miniatura para restaurar a janela. O menu de aplicativos compatíveis mostra até cinco documentos locais que eles registraram no histórico de recentes do desktop.
-
-### Bandeja de arquivos
-
-Arraste um ou mais arquivos locais para o ícone da bandeja. A contagem é compartilhada entre os monitores e workspaces. Arraste o próprio ícone para entregar o último arquivo adicionado, ou clique na bandeja e arraste um nome da lista para escolher outro. O botão **×** retira apenas a referência. Os arquivos originais permanecem onde estão. A bandeja é temporária e esvazia quando a dock reinicia.
-
-### Integrações opcionais
-
-Numa instalação nova, habilite os widgets desejados em **Configurações → Widgets** depois de autenticar os CLIs no computador. Os executáveis precisam estar disponíveis no ambiente do serviço de usuário.
-
-| Widget | Como conectar |
-|---|---|
-| GitHub | Instale o GitHub CLI e execute `gh auth login --hostname github.com`. A consulta usa a conta ativa para ler contribuições, PRs e checks. Os alertas de comentários e conflitos mostram o repositório e o número do PR nas notificações da área de trabalho. |
-| Claude | Execute `claude auth login`. A Orla lê o token OAuth local de `~/.claude/.credentials.json` para consultar os limites na API da Anthropic. |
-| Codex | Execute `codex login` com a conta que fornece os limites do plano. A Orla consulta o CLI local por meio de `codex app-server` e `account/rateLimits/read`. |
-
-As preferências da dock ficam em `~/.config/orla/settings.json`. Em outro computador, faça login nos CLIs com as contas que pretende consultar.
-
-#### Segundo perfil Claude (opcional)
-
-Por padrão, o painel mostra **Claude** e **Codex**. Para adicionar outra conta Claude, escolha um diretório separado e um nome para o perfil:
+The widget displays **Claude** and **Codex** by default. To add another Claude account, choose a separate profile directory and a display name.
 
 ```bash
-CLAUDE_CONFIG_DIR="$HOME/.claude-trabalho" claude auth login
-orla set extraClaudeProfile '{"name":"Trabalho","directory":"~/.claude-trabalho"}'
+CLAUDE_CONFIG_DIR="$HOME/.claude-work" claude auth login
+orla set extraClaudeProfile '{"name":"Work","directory":"~/.claude-work"}'
 ```
 
-Clique em **Atualizar** no painel de uso. Para remover o perfil da dock, execute `orla set extraClaudeProfile null`. O CLI mantém a sessão autenticada.
+Click **Refresh** in the usage panel. To remove the profile from Orla, run `orla set extraClaudeProfile null`. The CLI remains signed in.
 
-#### Filtro de organização do GitHub (opcional)
+#### GitHub organization filter
 
-Por padrão, o widget inclui todas as organizações acessíveis à conta. Para excluir uma organização dos PRs, dos alertas e do calendário, use seu login no GitHub:
+By default, the widget includes organizations accessible to the account. To exclude one from pull requests, notifications, and the contribution calendar, pass its GitHub login.
 
 ```bash
-orla set githubExcludedOrg '"minha-organizacao"'
+orla set githubExcludedOrg '"example-org"'
 ```
 
-Clique em **Atualizar** no widget do GitHub. Para limpar o filtro, use `orla set githubExcludedOrg '""'`. Essas preferências ficam no arquivo de configurações do usuário.
+Click **Refresh** in the GitHub widget. Clear the filter with `orla set githubExcludedOrg '""'`.
 
-## Comandos e recuperação
+## Commands and window recovery
 
-| Comando | Função |
+| Command | Result |
 |---|---|
-| `orla settings` | Abre as configurações da dock ativa. |
-| `orla enable` / `orla disable` | Ativa ou desativa a dock agora e nos próximos logins. |
-| `orla toggle` | Alterna entre os dois estados. Também disponível pelo launcher. |
-| `orla recover` | Traz de volta as janelas guardadas pela Orla, mesmo com a dock encerrada. |
-| `orla rescue` | Abre ou fecha o workspace especial da dock para acesso manual. |
+| `orla settings` | Opens the dock settings. |
+| `orla overview` | Toggles the window overview. |
+| `orla enable` / `orla disable` | Enables or disables the dock now and at future logins. |
+| `orla toggle` | Toggles the dock. Also available in the app launcher. |
+| `orla recover` | Restores windows minimized by Orla, even if the dock is closed. |
+| `orla rescue` | Opens or closes Orla's special workspace for manual access. |
 
-Janelas minimizadas continuam abertas em um workspace especial separado do scratchpad. No layout *dwindle*, a Orla tenta recompor a divisão original se uma janela vizinha ainda ocupa o espaço liberado. Se o layout mudou, o Hyprland determina a posição. A parada do serviço também tenta recuperar as janelas.
+Minimized windows stay open in a special workspace separate from the scratchpad. With *dwindle*, Orla attempts to recreate the original split if a neighboring window still occupies the space. If the layout has changed, Hyprland places the restored window. Stopping the service also attempts to recover minimized windows.
 
-Para ter um atalho de emergência, verifique se a combinação está livre e acrescente esta linha a `~/.config/hypr/bindings.lua`:
+To add an emergency shortcut, check that the key combination is free and add this line to `~/.config/hypr/bindings.lua`.
 
 ```lua
-o.bind("SUPER + CTRL + F12", "Orla: janelas minimizadas", "orla rescue")
+o.bind("SUPER + CTRL + F12", "Orla minimized windows", "orla rescue")
 ```
 
-## Atualizar
+## Updating
 
-Na pasta clonada:
+Run these commands from the existing checkout.
 
 ```bash
 git pull --ff-only
@@ -114,21 +127,21 @@ git pull --ff-only
 systemctl --user restart orla.service
 ```
 
-Reinicie o serviço se a dock estiver em uso. O reinício restaura janelas minimizadas.
+Restart the service if the dock is running. A restart restores minimized windows.
 
-## Desinstalar
+## Uninstalling
 
-Na pasta clonada, durante a sessão gráfica, execute `./uninstall.sh`. Para também apagar as preferências, use `./uninstall.sh --purge`. Depois, a pasta clonada pode ser removida. Se tiver personalizado o atalho de emergência, remova também a sua linha de configuração.
+Run `./uninstall.sh` from the checkout in a graphical session. Use `./uninstall.sh --purge` to remove the dock preferences as well. After uninstalling, you can remove the checkout and any shortcuts you added for Orla.
 
-## Diagnóstico
+## Troubleshooting
 
 ```bash
 systemctl --user status orla.service
 journalctl --user -u orla.service -b -n 50 --no-pager
 ```
 
-Se uma janela ficar fora de vista, comece por `orla recover`. Se o serviço falhar ao iniciar, confira o log e se a shell do Omarchy está disponível na sessão gráfica.
+If a window is out of sight, start with `orla recover`. If the service fails to start, check its logs and confirm the Omarchy shell is available in the graphical session.
 
-## Licença
+## License
 
-A Orla é distribuída sob a [licença MIT](LICENSE).
+Orla is released under the [MIT License](LICENSE).

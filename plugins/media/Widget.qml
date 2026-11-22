@@ -16,7 +16,7 @@ MediaTile {
     compact: iconOnly || host.vertical
     accent: host.accent
     shown: host.shown
-    Accessible.name: "Player de mídia"
+    Accessible.name: "Media Player"
 
     TapHandler {
         acceptedButtons: Qt.RightButton

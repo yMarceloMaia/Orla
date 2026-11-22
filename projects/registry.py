@@ -50,7 +50,7 @@ def database():
 def register(db, path, name="", compose=None):
     directory = Path(path).expanduser().resolve(strict=True)
     if not directory.is_dir():
-        raise ValueError("Selecione uma pasta.")
+        raise ValueError("Select a folder.")
     key = uuid.uuid4().hex
     db.execute(
         "INSERT INTO projects VALUES(?,?,?,?) ON CONFLICT(path) DO NOTHING",
@@ -96,7 +96,7 @@ def discover(db, path):
 
 def read(path):
     if path.stat().st_size > 2_000_000:
-        raise ValueError(f"Arquivo muito grande: {path.name}")
+        raise ValueError(f"File is too large: {path.name}")
     return path.read_text(errors="replace")
 
 
@@ -117,7 +117,7 @@ def source_commands(root, errors):
             ):
                 raise ValueError()
         except (OSError, ValueError):
-            errors.append("Não foi possível ler os scripts de package.json.")
+            errors.append("Could not read scripts from package.json.")
             data = {}
         manager = str(data.get("packageManager", "")).split("@")[0]
         if manager not in {"npm", "pnpm", "yarn", "bun"}:
@@ -155,7 +155,7 @@ def source_commands(root, errors):
         try:
             import yaml
         except ImportError:
-            errors.append("Instale python-yaml para descobrir tarefas YAML.")
+            errors.append("Install python-yaml to discover YAML tasks.")
             break
         try:
             data = yaml.safe_load(read(path)) or {}
@@ -163,7 +163,7 @@ def source_commands(root, errors):
             if not isinstance(data, dict) or not isinstance(data.get(field, {}), dict):
                 raise ValueError()
         except (yaml.YAMLError, OSError, ValueError):
-            errors.append("Não foi possível ler " + source + ".")
+            errors.append("Could not read " + source + ".")
             continue
         if source.startswith("Taskfile"):
             for name in data.get("tasks", {}):

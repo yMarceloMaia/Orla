@@ -20,9 +20,9 @@ Item {
                 if (!old && Date.parse(pr.created) < githubSince) continue;
                 const added = pr.count - (old?.count || 0);
                 const messages = [];
-                if (added > 0) messages.push(added === 1 ? "Novo comentário" : added + " novos comentários");
+                if (added > 0) messages.push(added === 1 ? "New comment" : added + " new comments");
                 if (pr.merge === "CONFLICTING" && old?.merge !== "CONFLICTING")
-                    messages.push("Conflito de merge");
+                    messages.push("Merge conflict");
                 if (pr.merge === "UNKNOWN" && old) pr.merge = old.merge;
                 if (messages.length)
                     Quickshell.execDetached(["notify-send", "--app-name=Orla", "--", pr.repo + " #" + pr.number, messages.join(" · ")]);
