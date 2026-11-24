@@ -252,9 +252,11 @@ class Backend:
                 p.update(commands=[], error=str(exc))
             projects.append(p)
         runs = [
-            dict(r) | {"state": runner.state_label(r["state"])}
+            dict(r) | {"state": runner.state_label(r["state"]), "deps": json.loads(r["deps"])}
             for r in db.execute(
-                "SELECT id,project,cmd,state,started,ended,pid,code FROM runs ORDER BY started DESC"
+                """SELECT id,project,cmd,state,started,ended,pid,code,deps,
+                          json_extract(spec, '$.ready.type') AS readiness
+                   FROM runs ORDER BY started DESC"""
             )
         ]
         if msg.get("monitor") and op in ("tick", "refresh"):

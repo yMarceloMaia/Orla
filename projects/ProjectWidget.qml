@@ -15,7 +15,31 @@ ToolButton {
     readonly property bool compact: host.vertical || host.compact === true || !dockExtraWidth
     readonly property bool light: host.background.hslLightness > 0.5
     readonly property color tone: monitor ? (light ? "#096958" : "#80d9c3") : (light ? "#5d4ba8" : "#c2afff")
-    readonly property int activeRuns: ProjectHub.runs.filter(r => !r.ended).length
+    readonly property var activeRuns: ProjectHub.runs.filter(r => !r.ended)
+    readonly property var environmentProjects: (panel.visible && !tile.monitor ? ProjectHub.projects : []).filter(
+        project => project.commands.some(command => command.environment))
+    readonly property var runsById: {
+        const index = {};
+        for (const run of ProjectHub.runs)
+            index[run.id] = run;
+        return index;
+    }
+    readonly property var recentFailures: {
+        const seen = new Set();
+        const failures = [];
+        const since = Date.now() / 1000 - 300;
+        for (const run of ProjectHub.runs) {
+            const key = run.project + ":" + run.cmd;
+            if (seen.has(key))
+                continue;
+            seen.add(key);
+            if (run.state === "Failed" && run.ended >= since)
+                failures.push(run);
+            if (failures.length === 5)
+                break;
+        }
+        return failures;
+    }
     readonly property real memoryTotal: ProjectHub.projects.reduce((sum, p) => sum + (p.metric?.total || 0), 0)
     readonly property bool partial: ProjectHub.projects.some(p => p.metric?.partial || p.metric?.approxMemory)
     implicitWidth: compact ? host.edge : host.edge + dockExtraWidth
@@ -41,7 +65,7 @@ ToolButton {
                 color: tile.muted
             }
             Text {
-                text: tile.monitor ? (tile.partial ? "≈" : "") + tile.mem(tile.memoryTotal) : tile.activeRuns + " active"
+                text: tile.monitor ? (tile.partial ? "≈" : "") + tile.mem(tile.memoryTotal) : tile.activeRuns.length + " active"
                 font.pixelSize: 12
                 font.weight: Font.DemiBold
                 color: tile.host.ink
@@ -54,6 +78,21 @@ ToolButton {
         border.color: tile.visualFocus ? tile.tone : Qt.alpha(tile.host.ink, 0.18)
     }
     onClicked: panel.visible = !panel.visible
+    TapHandler {
+        enabled: !tile.monitor
+        acceptedButtons: Qt.RightButton
+        onTapped: tile.showActiveRuns()
+    }
+    function showActiveRuns() {
+        confirmation.close();
+        panel.logRun = null;
+        panel.mode = "";
+        panel.key = "";
+        panel.query = "";
+        panel.tab = "active";
+        panel.visible = true;
+        ProjectHub.tick();
+    }
     function mem(n) {
         return n >= 1073741824 ? (n / 1073741824).toFixed(1) + " GiB" : Math.round((n || 0) / 1048576) + " MiB";
     }
@@ -75,11 +114,13 @@ ToolButton {
             commandDescription.text = c.description || "";
             inEnvironment.checked = !!c.environment;
             needsConfirm.checked = c.confirm !== false;
+            httpReadiness.text = c.ready?.type === "http" ? c.ready.url : "";
+            selectedDependencies = c.depends || [];
+            dependencyPicker.visible = false;
             editor.text = JSON.stringify({
                 cwd: c.cwd || ".",
                 env: c.env || {},
-                depends: c.depends || [],
-                ready: c.ready || null,
+                ready: c.ready?.type !== "http" ? c.ready || null : null,
                 shell: c.shell || false,
                 capture: c.capture !== false,
                 policy: c.policy || (c.category === "compose" ? "shared" : "managed"),
@@ -104,12 +145,26 @@ ToolButton {
         }
     }
     function confirm(label, request) {
-        panel.question = label;
-        panel.pending = request;
-        panel.mode = "confirm";
+        confirmation.question = label;
+        confirmation.request = Object.assign({project: panel.key}, request);
+        confirmation.open();
     }
-    function start(command) {
-        const catalog = panel.project.commands;
+    property var selectedDependencies: []
+    function commandNameFor(project, id) {
+        return project?.commands.find(command => command.id === id)?.name || id;
+    }
+    function startEnvironment(project) {
+        const commands = project.commands.filter(command => command.environment);
+        if (!commands.length)
+            return;
+        const sequence = commandSequence(project.commands, commands);
+        confirm("Start " + project.name + "?\n" + sequence.map(command => command.argv.join(" ")).join("\n"), {
+            op: "all",
+            project: project.id,
+            confirmed: true
+        });
+    }
+    function commandSequence(catalog, targets) {
         const visited = new Set();
         const sequence = [];
         function collect(item) {
@@ -120,14 +175,19 @@ ToolButton {
                 collect(catalog.find(c => c.id === id));
             sequence.push(item);
         }
-        collect(command);
+        targets.forEach(collect);
+        return sequence;
+    }
+    function start(project, command) {
+        const sequence = commandSequence(project.commands, [command]);
         const data = {
             op: "start",
+            project: project.id,
             id: command.id
         };
         if (sequence.some(c => c.confirm !== false)) {
             data.confirmed = true;
-            confirm("Run in this project?\n" + sequence.map(c => c.argv.join(" ")).join("\n"), data);
+            confirm("Run in " + project.name + "?\n" + sequence.map(c => c.argv.join(" ")).join("\n"), data);
         } else
             send(data);
     }
@@ -161,8 +221,13 @@ ToolButton {
                     category: commandCategory.text,
                     argv: JSON.parse(commandArgs.text),
                     environment: inEnvironment.checked,
-                    confirm: needsConfirm.checked
+                    confirm: needsConfirm.checked,
+                    depends: selectedDependencies
                 });
+                if (httpReadiness.text.trim())
+                    spec.ready = {type: "http", url: httpReadiness.text.trim()};
+                else if (spec.ready?.type === "http")
+                    delete spec.ready;
                 if (!spec.ready)
                     delete spec.ready;
                 send({
@@ -231,7 +296,13 @@ ToolButton {
         exclusionMode: ExclusionMode.Ignore
         WlrLayershell.layer: WlrLayer.Overlay
         WlrLayershell.namespace: "orla-project-panel"
-        WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
+        // Mapping a keyboard-interactive layer can pull pointer focus off the dock.
+        WlrLayershell.keyboardFocus: acceptsKeyboard ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
+        property bool acceptsKeyboard: false
+        HoverHandler {
+            onHoveredChanged: if (hovered && panel.visible)
+                panel.acceptsKeyboard = true
+        }
         anchors.left: !tile.host.vertical || tile.host.leftEdge
         anchors.right: tile.host.vertical && !tile.host.leftEdge
         anchors.bottom: !tile.host.vertical
@@ -242,12 +313,14 @@ ToolButton {
         margins.bottom: tile.host.vertical ? 0 : tile.host.extent
         margins.top: tile.host.vertical ? Math.max(0, Math.min(tile.host.screenHeight - height, (tile.host.screenHeight - (dock?.height ?? 0)) / 2 + tileCenter.y - height / 2)) : 0
         implicitWidth: Math.min(724, tile.host.screenWidth - 16)
-        implicitHeight: Math.min(!mode && !project && !portsTab ? Math.min(620, header.implicitHeight + overview.implicitHeight + (tile.monitor ? 64 : 110) + (ProjectHub.error ? errorLabel.implicitHeight + 10 : 0)) : 620, tile.host.screenHeight - tile.host.extent - 16)
+        implicitHeight: Math.min(!mode && !project && tab === "main" && !logRun ? Math.min(620, header.implicitHeight + overview.implicitHeight + (tile.monitor ? 64 : 110) + (ProjectHub.error ? errorLabel.implicitHeight + 10 : 0)) : 620, tile.host.screenHeight - tile.host.extent - 16)
         color: "transparent"
         property string key: ""
         property string mode: ""
-        property bool portsTab: false
-        readonly property bool showingSystemPorts: visible && !tile.monitor && portsTab && !project && !mode
+        property string tab: "main"
+        readonly property bool portsTab: tab === "ports"
+        readonly property bool activeTab: tab === "active"
+        readonly property bool showingSystemPorts: visible && !tile.monitor && portsTab && !project && !mode && !logRun
         readonly property var ports: (project ? metric.ports : ProjectHub.systemPorts) || []
         property string portQuery: ""
         readonly property var filteredPorts: {
@@ -266,33 +339,64 @@ ToolButton {
                 op: "systemPorts"
             })
         onKeyChanged: {
-            portsTab = false;
+            tab = "main";
             portQuery = "";
         }
-        onPortsTabChanged: if (scroll.contentItem)
-            scroll.contentItem.contentY = 0
+        onTabChanged: if (scroll.contentItem)
+            scroll.contentItem.contentY = scroll.contentItem.originY
         property string sortBy: "total"
         property string query: ""
-        property string runId: ""
+        property var logRun: null
+        property string logQuery: ""
+        property real returnScrollY: 0
         property var lines: []
-        property string question: ""
-        property var pending: null
+        property bool logLoading: false
+        property bool followLogTail: false
         property var original: ({})
         property bool counted: false
         readonly property var project: ProjectHub.projects.find(p => p.id === key)
         readonly property var metric: project?.metric || {}
         readonly property var runs: ProjectHub.runs.filter(r => r.project === key)
-        function logPage(rid) {
-            const viewer = decodeURIComponent(Qt.resolvedUrl("log_terminal.py").toString().slice(7));
-            Quickshell.execDetached(["xdg-terminal-exec", "--", "python3", viewer, rid]);
-            runId = rid;
+        readonly property var quickGroups: visible && activeTab ? ProjectHub.projects.map(project => ({
+            project,
+            favorites: project.commands.filter(command => command.favorite),
+            runs: tile.activeRuns.filter(run => run.project === project.id),
+            failures: tile.recentFailures.filter(run => run.project === project.id)
+        })).filter(group => group.favorites.length || group.runs.length || group.failures.length) : []
+        function logPage(run) {
+            scroll.contentItem.cancelFlick();
+            returnScrollY = scroll.contentItem.contentY;
+            logRun = run;
+            logQuery = "";
             lines = [];
-            query = "";
-            mode = "logs";
-            tile.send({
+            logLoading = true;
+            ProjectHub.error = "";
+            requestLogs();
+        }
+        function openLogsInTerminal(runId) {
+            const viewer = decodeURIComponent(Qt.resolvedUrl("log_terminal.py").toString().slice(7));
+            Quickshell.execDetached(["xdg-terminal-exec", "--", "python3", viewer, runId]);
+        }
+        function requestLogs() {
+            ProjectHub.send({
                 op: "logs",
-                run: rid
+                project: logRun.project,
+                run: logRun.id
             });
+        }
+        function closeLogs() {
+            logRun = null;
+            lines = [];
+            Qt.callLater(() => {
+                if (panel.visible && !panel.logRun) {
+                    const view = scroll.contentItem;
+                    view.contentY = Math.max(view.originY, Math.min(returnScrollY, view.originY + view.contentHeight - view.height));
+                }
+            });
+        }
+        function scrollLogsToEnd() {
+            if (logRun && !logQuery.trim())
+                logScroll.contentY = Math.max(0, logScroll.contentHeight - logScroll.height);
         }
         onVisibleChanged: {
             if (visible)
@@ -302,11 +406,14 @@ ToolButton {
                 ProjectHub.panels += visible ? 1 : -1;
             }
             if (!visible) {
+                acceptsKeyboard = false;
+                confirmation.close();
                 mode = "";
-                portsTab = false;
+                tab = "main";
                 portQuery = "";
                 query = "";
-                runId = "";
+                logRun = null;
+                lines = [];
             }
         }
         Component.onDestruction: if (counted)
@@ -318,8 +425,13 @@ ToolButton {
                     panel.visible = false;
             }
             function onLogResult(run, lines) {
-                if (panel.runId === run)
-                    panel.lines = lines;
+                if (panel.logRun?.id !== run)
+                    return;
+                panel.followLogTail = panel.logLoading || logScroll.atYEnd;
+                panel.lines = lines;
+                panel.logLoading = false;
+                if (panel.followLogTail)
+                    logTail.restart();
             }
         }
         Timer {
@@ -331,14 +443,16 @@ ToolButton {
             })
         }
         Timer {
-            running: panel.visible && panel.mode === "logs"
+            running: panel.visible && !!panel.logRun
             repeat: true
             interval: 1500
-            onTriggered: ProjectHub.send({
-                op: "logs",
-                project: panel.key,
-                run: panel.runId
-            })
+            onTriggered: panel.requestLogs()
+        }
+        Timer {
+            id: logTail
+            // Wait for the log viewport to be laid out before jumping to its end.
+            interval: 0
+            onTriggered: panel.scrollLogsToEnd()
         }
         Rectangle {
             anchors.fill: parent
@@ -353,10 +467,14 @@ ToolButton {
             RowLayout {
                 id: header
                 B {
-                    visible: !!panel.project || !!panel.mode
+                    visible: !!panel.project || !!panel.mode || !!panel.logRun
                     text: "‹"
                     Accessible.name: "Back"
                     onClicked: {
+                        if (panel.logRun) {
+                            panel.closeLogs();
+                            return;
+                        }
                         if (panel.mode)
                             panel.mode = "";
                         else
@@ -371,20 +489,25 @@ ToolButton {
                     Layout.preferredHeight: 34
                 }
                 T {
-                    text: panel.project?.name || (tile.monitor ? "Project Resources" : "Project Commands")
+                    text: panel.logRun ? "Logs" : panel.project?.name || (tile.monitor ? "Project Resources" : "Project Commands")
                     font.pixelSize: 20
                     font.weight: Font.DemiBold
                 }
                 RefreshButton {
                     ink: tile.host.ink
                     busy: ProjectHub.ticking
-                    onClicked: tile.send(panel.showingSystemPorts ? {
-                        op: "systemPorts"
-                    } : {
-                        op: "refresh",
-                        monitor: true,
-                        detail: true
-                    })
+                    onClicked: {
+                        if (panel.logRun)
+                            panel.requestLogs();
+                        else
+                            tile.send(panel.showingSystemPorts ? {
+                                op: "systemPorts"
+                            } : {
+                                op: "refresh",
+                                monitor: true,
+                                detail: true
+                            });
+                    }
                 }
                 B {
                     text: "×"
@@ -399,21 +522,23 @@ ToolButton {
                 color: tile.host.accent
             }
             RowLayout {
-                visible: !tile.monitor && !panel.mode
+                visible: !tile.monitor && !panel.mode && !panel.logRun
                 B {
                     text: panel.project ? "Commands" : "Projects"
-                    checkable: true
-                    checked: !panel.portsTab
-                    primary: checked
-                    onClicked: panel.portsTab = false
+                    primary: panel.tab === "main"
+                    onClicked: panel.tab = "main"
+                }
+                B {
+                    visible: !panel.project
+                    text: "Active (" + tile.activeRuns.length + ")"
+                    primary: panel.activeTab
+                    onClicked: panel.tab = "active"
                 }
                 B {
                     text: panel.project ? "Ports" : "System ports"
-                    checkable: true
-                    checked: panel.portsTab
-                    primary: checked
+                    primary: panel.portsTab
                     onClicked: {
-                        panel.portsTab = true;
+                        panel.tab = "ports";
                         if (panel.project)
                             ProjectHub.tick();
                     }
@@ -421,13 +546,13 @@ ToolButton {
             }
             TextField {
                 Layout.fillWidth: true
-                visible: panel.mode === "logs" || (!!panel.project && !panel.mode && !tile.monitor && !panel.portsTab)
-                placeholderText: panel.mode === "logs" ? "Search logs" : "Search commands"
+                visible: !!panel.project && !panel.mode && !tile.monitor && !panel.portsTab && !panel.logRun
+                placeholderText: "Search commands"
                 text: panel.query
                 onTextEdited: panel.query = text
             }
             RowLayout {
-                visible: !tile.monitor && panel.portsTab && !panel.mode
+                visible: !tile.monitor && panel.portsTab && !panel.mode && !panel.logRun
                 Layout.fillWidth: true
                 Field {
                     id: portFilter
@@ -451,6 +576,7 @@ ToolButton {
             }
             ScrollView {
                 id: scroll
+                visible: !panel.logRun
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 contentWidth: availableWidth
@@ -461,7 +587,7 @@ ToolButton {
                     ColumnLayout {
                         id: overview
                         spacing: 10
-                        visible: !panel.mode && !panel.project && !panel.portsTab
+                        visible: !panel.mode && !panel.project && panel.tab === "main"
                         Layout.fillWidth: true
                         RowLayout {
                             id: summary
@@ -469,7 +595,7 @@ ToolButton {
                             Layout.fillWidth: true
                             readonly property var metrics: ProjectHub.projects.map(p => p.metric || {})
                             Repeater {
-                                model: tile.monitor ? [[(tile.partial ? "≈" : "") + tile.mem(tile.memoryTotal), "Attributed RAM"], [(summary.metrics.some(m => m.cpuPartial) ? "≈" : "") + summary.metrics.reduce((v, m) => v + (m.totalCpu || 0), 0).toFixed(1) + "%", "CPU"], [summary.metrics.reduce((v, m) => v + (m.processes?.length || 0), 0), "Processes"], [summary.metrics.filter(m => m.processes?.length || m.containers?.some(c => c.state === "running")).length, "Active projects"]] : [[ProjectHub.projects.length, "Projects"], [tile.activeRuns, "Running"], [ProjectHub.projects.reduce((v, p) => v + p.commands.length, 0), "Commands"]]
+                                model: tile.monitor ? [[(tile.partial ? "≈" : "") + tile.mem(tile.memoryTotal), "Attributed RAM"], [(summary.metrics.some(m => m.cpuPartial) ? "≈" : "") + summary.metrics.reduce((v, m) => v + (m.totalCpu || 0), 0).toFixed(1) + "%", "CPU"], [summary.metrics.reduce((v, m) => v + (m.processes?.length || 0), 0), "Processes"], [summary.metrics.filter(m => m.processes?.length || m.containers?.some(c => c.state === "running")).length, "Active projects"]] : [[ProjectHub.projects.length, "Projects"], [tile.activeRuns.length, "Running"], [ProjectHub.projects.reduce((v, p) => v + p.commands.length, 0), "Commands"]]
                                 delegate: ColumnLayout {
                                     required property var modelData
                                     spacing: 1
@@ -855,12 +981,12 @@ ToolButton {
                                     B {
                                         primary: true
                                         text: "Run"
-                                        onClicked: tile.start(cmd)
+                                        onClicked: tile.start(panel.project, cmd)
                                     }
                                     B {
                                         visible: !!latest
                                         text: "Logs"
-                                        onClicked: panel.logPage(latest.id)
+                                        onClicked: panel.logPage(latest)
                                     }
                                     B {
                                         visible: !!latest && !latest.ended
@@ -895,64 +1021,227 @@ ToolButton {
                                 }
                             }
                         }
+                    }
+                    ColumnLayout {
+                        id: runList
+                        visible: !tile.monitor && !panel.mode && (panel.activeTab || (!!panel.project && !panel.portsTab))
+                        Layout.fillWidth: true
+                        spacing: 8
                         T {
-                            visible: !tile.monitor
+                            visible: !panel.activeTab
                             text: "Runs and history"
                             font.bold: true
                         }
+                        RowLayout {
+                            visible: panel.activeTab
+                            Layout.fillWidth: true
+                            T {
+                                text: "Commands by project"
+                                font.bold: true
+                            }
+                            B {
+                                id: environmentButton
+                                primary: true
+                                enabled: tile.environmentProjects.length > 0
+                                text: "Start environment ▾"
+                                onClicked: environmentMenu.open()
+                                Menu {
+                                    id: environmentMenu
+                                    popupType: Popup.Item
+                                    y: environmentButton.height + 4
+                                    palette.windowText: tile.host.ink
+                                    palette.highlight: Qt.tint(tile.host.background, Qt.alpha(tile.tone, 0.14))
+                                    background: Rectangle {
+                                        radius: 8
+                                        color: tile.host.background
+                                        border.color: Qt.alpha(tile.host.ink, 0.22)
+                                    }
+                                    Instantiator {
+                                        model: tile.environmentProjects
+                                        onObjectAdded: (index, object) => environmentMenu.insertItem(index, object)
+                                        onObjectRemoved: (index, object) => environmentMenu.removeItem(object)
+                                        delegate: MenuItem {
+                                            required property var modelData
+                                            text: modelData.name
+                                            onTriggered: Qt.callLater(tile.startEnvironment, modelData)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        T {
+                            visible: panel.activeTab && !tile.environmentProjects.length
+                            text: "To enable Start environment, mark a command to include when starting the environment."
+                            color: tile.muted
+                            font.pixelSize: 12
+                        }
+                        T {
+                            visible: panel.activeTab && !tile.activeRuns.length
+                            text: "No commands running."
+                            color: tile.muted
+                        }
                         Repeater {
-                            model: tile.monitor || !panel.visible || panel.mode ? [] : panel.runs
+                            model: !runList.visible || !panel.visible ? [] : panel.activeTab ? panel.quickGroups : [{
+                                project: panel.project,
+                                favorites: [],
+                                runs: panel.runs,
+                                failures: []
+                            }]
                             delegate: ColumnLayout {
+                                id: runGroup
                                 required property var modelData
-                                readonly property var r: modelData
+                                readonly property var group: modelData
                                 Layout.fillWidth: true
-                                Rectangle {
-                                    Layout.fillWidth: true
-                                    Layout.topMargin: 5
-                                    implicitHeight: 1
-                                    color: Qt.alpha(tile.host.ink, 0.15)
+                                spacing: 8
+                                T {
+                                    visible: panel.activeTab
+                                    text: runGroup.group.project?.name || ""
+                                    Layout.topMargin: 8
+                                    font.pixelSize: 16
+                                    font.weight: Font.DemiBold
                                 }
                                 T {
-                                    text: r.cmd + "   " + r.state + "   " + Math.max(0, Math.round((r.ended || Date.now() / 1000) - r.started)) + " s" + (r.pid ? "   PID " + r.pid : "   #" + r.id.slice(0, 8)) + (r.code == null ? "" : "   exit " + r.code)
+                                    visible: runGroup.group.favorites.length > 0
+                                    text: "Favorites"
+                                    color: tile.muted
+                                    font.pixelSize: 12
                                 }
-                                RowLayout {
-                                    B {
-                                        text: "Logs"
-                                        onClicked: panel.logPage(r.id)
+                                Repeater {
+                                    model: runGroup.group.favorites
+                                    delegate: RowLayout {
+                                        id: favoriteRow
+                                        required property var modelData
+                                        readonly property var activeRun: runGroup.group.runs.find(run => run.cmd === modelData.id)
+                                        Layout.fillWidth: true
+                                        T {
+                                            text: "★  " + favoriteRow.modelData.name
+                                            font.weight: Font.Medium
+                                        }
+                                        B {
+                                            text: favoriteRow.activeRun ? "Logs" : "Run"
+                                            primary: !favoriteRow.activeRun
+                                            onClicked: {
+                                                if (favoriteRow.activeRun)
+                                                    panel.logPage(favoriteRow.activeRun);
+                                                else
+                                                    tile.start(runGroup.group.project, favoriteRow.modelData);
+                                            }
+                                        }
                                     }
-                                    B {
-                                        visible: !r.ended
-                                        text: "Stop"
-                                        onClicked: tile.confirm("Stop this run? Associated services may be shared.", {
-                                            op: "stop",
-                                            run: r.id,
-                                            confirmed: true
-                                        })
-                                    }
-                                    B {
-                                        visible: !r.ended
-                                        text: "Restart"
-                                        onClicked: tile.confirm("Stop and restart " + r.cmd + "?", {
-                                            op: "restart",
-                                            id: r.cmd,
-                                            confirmed: true
-                                        })
-                                    }
-                                    B {
-                                        visible: !!r.ended
-                                        text: "Run again"
-                                        onClicked: tile.confirm("Run again " + r.cmd + "?", {
-                                            op: "start",
-                                            id: r.cmd,
-                                            confirmed: true
-                                        })
+                                }
+                                T {
+                                    visible: runGroup.group.favorites.length > 0 && runGroup.group.runs.length > 0
+                                    text: "Active runs"
+                                    Layout.topMargin: 4
+                                    color: tile.muted
+                                    font.pixelSize: 12
+                                }
+                                Repeater {
+                                    model: runGroup.group.runs.concat(runGroup.group.failures)
+                                    delegate: ColumnLayout {
+                                        id: runRow
+                                        required property int index
+                                        required property var modelData
+                                        readonly property var r: modelData
+                                        readonly property var project: runGroup.group.project
+                                        readonly property var waiting: r.state === "Queued" ? (r.deps || []).map(id => tile.runsById[id]).filter(dep =>
+                                            dep && !["Ready", "Completed"].includes(dep.state) && (dep.state !== "Running" || dep.readiness)) : []
+                                        readonly property string status: r.state === "Running" && r.readiness ? "Checking readiness" : waiting.length ? "Waiting for dependency" : r.state
+                                        readonly property color statusColor: r.state === "Failed" ? (tile.light ? "#a43939" : "#ff9e9e") :
+                                            r.state === "Ready" ? (tile.light ? "#166449" : "#8de5b1") :
+                                            r.state === "Queued" || r.state === "Starting" || status === "Checking readiness" ? (tile.light ? "#865208" : "#f2c379") : tile.tone
+                                        Layout.fillWidth: true
+                                        T {
+                                            visible: panel.activeTab && runRow.index === runGroup.group.runs.length
+                                            text: "Recent failures"
+                                            Layout.topMargin: 6
+                                            font.weight: Font.DemiBold
+                                        }
+                                        Rectangle {
+                                            Layout.fillWidth: true
+                                            Layout.topMargin: 5
+                                            implicitHeight: 1
+                                            color: Qt.alpha(tile.host.ink, 0.15)
+                                        }
+                                        RowLayout {
+                                            Layout.fillWidth: true
+                                            T {
+                                                text: tile.commandNameFor(project, r.cmd)
+                                                font.weight: Font.DemiBold
+                                            }
+                                            Rectangle {
+                                                radius: 6
+                                                implicitWidth: runStatus.implicitWidth + 14
+                                                implicitHeight: runStatus.implicitHeight + 6
+                                                color: Qt.alpha(runRow.statusColor, 0.12)
+                                                Label {
+                                                    id: runStatus
+                                                    anchors.centerIn: parent
+                                                    text: runRow.status
+                                                    textFormat: Text.PlainText
+                                                    color: runRow.statusColor
+                                                    font.weight: Font.Medium
+                                                }
+                                            }
+                                        }
+                                        T {
+                                            visible: waiting.length > 0
+                                            text: "Waiting for " + waiting.map(dep => tile.commandNameFor(project, dep.cmd)).join(", ")
+                                            color: tile.muted
+                                        }
+                                        T {
+                                            text: [Math.max(0, Math.round((r.ended || Date.now() / 1000) - r.started)) + " s", r.pid ? "PID " + r.pid : "#" + r.id.slice(0, 8), r.code == null ? "" : "exit " + r.code].filter(Boolean).join("  ·  ")
+                                            color: tile.muted
+                                            font.pixelSize: 12
+                                        }
+                                        RowLayout {
+                                            B {
+                                                text: "Logs"
+                                                onClicked: panel.logPage(r)
+                                            }
+                                            B {
+                                                visible: panel.activeTab
+                                                text: "Open in terminal"
+                                                onClicked: panel.openLogsInTerminal(r.id)
+                                            }
+                                            B {
+                                                visible: !r.ended
+                                                text: "Stop"
+                                                onClicked: tile.confirm("Stop this run? Associated services may be shared.", {
+                                                    op: "stop",
+                                                    project: r.project,
+                                                    run: r.id,
+                                                    confirmed: true
+                                                })
+                                            }
+                                            B {
+                                                visible: !r.ended
+                                                text: "Restart"
+                                                onClicked: tile.confirm("Stop and restart " + r.cmd + "?", {
+                                                    op: "restart",
+                                                    project: r.project,
+                                                    id: r.cmd,
+                                                    confirmed: true
+                                                })
+                                            }
+                                            B {
+                                                visible: !!r.ended
+                                                text: "Run again"
+                                                onClicked: tile.confirm("Run again " + r.cmd + "?", {
+                                                    op: "start",
+                                                    project: r.project,
+                                                    id: r.cmd,
+                                                    confirmed: true
+                                                })
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
                     }
                     ColumnLayout {
-                        visible: !!panel.mode && panel.mode !== "confirm" && panel.mode !== "logs"
+                        visible: !!panel.mode
                         Layout.fillWidth: true
                         T {
                             text: ({
@@ -1008,9 +1297,51 @@ ToolButton {
                                 text: "Require confirmation"
                                 palette.windowText: tile.host.ink
                             }
+                            T {
+                                text: "Startup order"
+                                font.weight: Font.DemiBold
+                            }
+                            Field {
+                                id: httpReadiness
+                                placeholderText: "HTTP readiness URL (optional)"
+                                Accessible.name: "HTTP readiness URL"
+                            }
+                            T {
+                                text: "Use an endpoint that responds successfully when this command is ready, such as a health check."
+                                color: tile.muted
+                                font.pixelSize: 12
+                            }
+                            B {
+                                text: "Run after" + (tile.selectedDependencies.length ? " (" + tile.selectedDependencies.length + ")" : "")
+                                onClicked: dependencyPicker.visible = !dependencyPicker.visible
+                            }
+                            T {
+                                visible: tile.selectedDependencies.length > 0
+                                text: tile.selectedDependencies.map(id => tile.commandNameFor(panel.project, id)).join(", ")
+                                color: tile.muted
+                                font.pixelSize: 12
+                            }
+                            ColumnLayout {
+                                id: dependencyPicker
+                                visible: false
+                                Layout.fillWidth: true
+                                Repeater {
+                                    model: dependencyPicker.visible && panel.mode === "command" ? (panel.project?.commands || []).filter(command => command.id !== panel.original.id) : []
+                                    delegate: CheckBox {
+                                        required property var modelData
+                                        text: modelData.name
+                                        palette.windowText: tile.host.ink
+                                        checked: tile.selectedDependencies.includes(modelData.id)
+                                        onToggled: {
+                                            const id = modelData.id;
+                                            tile.selectedDependencies = checked ? [...tile.selectedDependencies, id] : tile.selectedDependencies.filter(value => value !== id);
+                                        }
+                                    }
+                                }
+                            }
                             CheckBox {
                                 id: advanced
-                                text: "Readiness, dependencies, and environment"
+                                text: "Advanced settings"
                                 palette.windowText: tile.host.ink
                             }
                         }
@@ -1040,30 +1371,132 @@ ToolButton {
                             onClicked: tile.save()
                         }
                     }
-                    ColumnLayout {
-                        visible: panel.mode === "confirm"
-                        Layout.fillWidth: true
-                        T {
-                            text: panel.question
-                        }
-                        RowLayout {
-                            B {
-                                text: "Cancel"
-                                onClicked: panel.mode = ""
-                            }
-                            B {
-                                text: "Confirm"
-                                onClicked: {
-                                    tile.send(panel.pending);
-                                    panel.mode = "";
-                                }
+                }
+            }
+            ColumnLayout {
+                visible: !!panel.logRun
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                spacing: 8
+                RowLayout {
+                    Layout.fillWidth: true
+                    Field {
+                        text: panel.logQuery
+                        placeholderText: "Search logs"
+                        onTextEdited: {
+                            panel.logQuery = text;
+                            if (text.trim())
+                                logScroll.contentY = 0;
+                            else {
+                                panel.followLogTail = true;
+                                logTail.restart();
                             }
                         }
                     }
+                    B {
+                        text: "Open in terminal"
+                        enabled: !!panel.logRun
+                        onClicked: panel.openLogsInTerminal(panel.logRun.id)
+                    }
+                }
+                ScrollView {
+                    id: logView
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    clip: true
+                    ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+                    background: Rectangle {
+                        radius: 8
+                        color: Qt.alpha(tile.host.ink, 0.045)
+                    }
+                    Flickable {
+                        id: logScroll
+                        contentWidth: logView.availableWidth
+                        contentHeight: logText.height
+                        boundsBehavior: Flickable.StopAtBounds
+                        onHeightChanged: if (panel.logRun && panel.followLogTail)
+                            logTail.restart()
+                        onMovementStarted: panel.followLogTail = false
+                        TextEdit {
+                            id: logText
+                            width: logScroll.contentWidth
+                            height: implicitHeight
+                            padding: 10
+                            readOnly: true
+                            selectByMouse: true
+                            textFormat: TextEdit.PlainText
+                            wrapMode: TextEdit.WrapAnywhere
+                            font.family: "monospace"
+                            color: tile.host.ink
+                            text: {
+                                const search = panel.logQuery.trim().toLowerCase();
+                                const output = (search ? panel.lines.filter(line => line.toLowerCase().includes(search)) : panel.lines).join("\n");
+                                return output || (panel.logLoading ? "Loading logs…" : search ? "No matching log lines." : "No log lines available.");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Popup {
+            id: confirmation
+            parent: panel.contentItem
+            popupType: Popup.Item
+            anchors.centerIn: parent
+            width: Math.min(420, parent.width - 24)
+            padding: 16
+            modal: true
+            focus: true
+            closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+            property string question: ""
+            property var request: null
+            onClosed: {
+                question = "";
+                request = null;
+            }
+            Overlay.modal: Rectangle {
+                color: "#55000000"
+            }
+            background: Rectangle {
+                radius: 12
+                color: tile.host.background
+                border.color: Qt.alpha(tile.host.ink, 0.22)
+            }
+            contentItem: ColumnLayout {
+                spacing: 10
+                T {
+                    text: "Confirm action"
+                    font.pixelSize: 16
+                    font.weight: Font.DemiBold
+                }
+                ScrollView {
+                    id: questionView
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Math.min(questionText.implicitHeight, 168, Math.max(48, panel.height - 112))
+                    contentWidth: availableWidth
+                    clip: true
                     T {
-                        visible: panel.mode === "logs"
-                        text: panel.lines.filter(l => l.toLowerCase().includes(panel.query.toLowerCase())).join("\n") || "No log lines available."
-                        font.family: "monospace"
+                        id: questionText
+                        width: questionView.availableWidth
+                        text: confirmation.question
+                        wrapMode: Text.WrapAnywhere
+                    }
+                }
+                RowLayout {
+                    Layout.alignment: Qt.AlignRight
+                    B {
+                        text: "Cancel"
+                        onClicked: confirmation.close()
+                    }
+                    B {
+                        text: confirmation.request?.op === "all" ? "Start environment" : confirmation.request?.op === "start" ? "Run" : "Confirm"
+                        primary: true
+                        onClicked: {
+                            const request = confirmation.request;
+                            confirmation.close();
+                            if (request)
+                                tile.send(request);
+                        }
                     }
                 }
             }

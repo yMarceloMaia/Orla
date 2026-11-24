@@ -139,15 +139,19 @@ def dependency_order(cmds, targets, confirmed):
 
 def start(db, project, cmds, targets, confirmed=False):
     order = dependency_order(cmds, targets, confirmed)
+    prerequisites = {dep for key in order for dep in cmds[key].get("depends", [])}
     ids, new = {}, []
     db.execute("BEGIN IMMEDIATE")
     try:
         for k in order:
             old = db.execute(
-                f"SELECT id FROM runs WHERE project=? AND cmd=? AND state IN {SQL_ACTIVE}",
+                f"SELECT id,spec FROM runs WHERE project=? AND cmd=? AND state IN {SQL_ACTIVE}",
                 (project["id"], k),
             ).fetchone()
             if old:
+                readiness = cmds[k].get("ready")
+                if k in prerequisites and readiness and json.loads(old["spec"]).get("ready") != readiness:
+                    raise ValueError("Restart " + cmds[k]["name"] + " to apply its readiness check.")
                 ids[k] = old[0]
                 continue
             spec = dict(cmds[k])
